@@ -155,6 +155,23 @@ describe('MaestroBuilder — CONFLICTO_MAYOR (cross-macro, not auto-assigned)', 
   })
 })
 
+describe('MaestroBuilder — MANUAL overrides cross-macro conflict (human resolves it)', () => {
+  test('BODEGA (UTT, file EXACTO) + MAYORISTA CON FUERZA DE VENTA (MAYORISTAS, MANUAL) → manual wins, no conflicto', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-4b', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202603 })
+    b.observe({ rif: 'J-4b', segmentoN3: 'MAYORISTA CON FUERZA DE VENTA', macroN1: MAYORISTAS, metodo: 'MANUAL', fechaOrden: 202510 })
+
+    const { maestro, conflictos } = b.build()
+
+    expect(conflictos).toEqual([])
+    expect(maestro.size).toBe(1)
+    const entry = maestro.get(normalizeRif('J-4b'))
+    expect(entry?.segmentoN3).toBe('MAYORISTA CON FUERZA DE VENTA')
+    expect(entry?.macroN1).toBe(MAYORISTAS)
+    expect(entry?.reglaCanonica).toBe('MANUAL')
+  })
+})
+
 describe('MaestroBuilder — RIF format convergence', () => {
   test('J-500522657 and J500522657 accumulate into the same maestro key', () => {
     const b = new MaestroBuilder()

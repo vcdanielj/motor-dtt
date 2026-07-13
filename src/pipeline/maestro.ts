@@ -84,8 +84,11 @@ export class MaestroBuilder {
       const segEntries = [...agg.segmentos.entries()]
       if (segEntries.length === 0) continue
 
+      // A MANUAL observation IS the human resolving the conflict, so it overrides cross-macro
+      // detection: only RIFs with no manual observation can raise CONFLICTO_MAYOR.
+      const hasManual = segEntries.some(([, s]) => s.hasManual)
       const macros = [...new Set(segEntries.map(([, s]) => s.macroN1))]
-      if (macros.length > 1) {
+      if (!hasManual && macros.length > 1) {
         conflictos.push({
           rif: agg.rawRif,
           macros: macros.sort(),
@@ -96,11 +99,12 @@ export class MaestroBuilder {
       }
 
       const [winnerSegmento, reglaCanonica] = pickWinner(segEntries)
+      const winnerMacro = agg.segmentos.get(winnerSegmento)?.macroN1 ?? macros[0]
       maestro.set(key, {
         rif: agg.rawRif,
         razonSocial: agg.razonSocial,
         segmentoN3: winnerSegmento,
-        macroN1: macros[0],
+        macroN1: winnerMacro,
         metodo: 'MAESTRO',
         confianza: 'N3',
         estadoHabitual: null,
