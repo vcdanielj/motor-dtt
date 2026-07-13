@@ -1,6 +1,6 @@
-export interface SegmentoSeed { n3: string; macroN1: string; placeholder: boolean }
+export interface SegmentoSeed { n3: string; macroN1: string; codigo: string; placeholder: boolean }
 
-export interface DiccionarioEntry { variante: string; segmentoN3: string; macroN1: string; metodo: 'EXACTO'; activa: boolean }
+export interface DiccionarioEntry { variante: string; segmentoN3: string; macroN1: string; codigo: string; metodo: 'EXACTO'; activa: boolean }
 
 export interface SeedCatalogs {
   segmentos: SegmentoSeed[]

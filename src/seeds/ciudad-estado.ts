@@ -1,4 +1,4 @@
-// PLACEHOLDER — replace with ciudad_estado.csv (curated once from real data, PRD R4).
+// Semilla curada (no forma parte del Entregable 2.1); ampliar con ciudad_estado real (PRD R4).
 export const CIUDAD_ESTADO: Record<string, string> = {
   CARACAS: 'DISTRITO CAPITAL',
   MARACAIBO: 'ZULIA',

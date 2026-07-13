@@ -9,7 +9,7 @@ export const SEEDS: SeedCatalogs = {
   estados: ESTADOS,
   ciudadEstado: CIUDAD_ESTADO,
   diccionario: DICCIONARIO,
-  provenance: { source: 'prototype SEGS + PRD §7.1 (PLACEHOLDER)', placeholder: true },
+  provenance: { source: 'Entregable 2.1 — Catálogo Maestro DTT Heinz VE (Hojas 1/2/4); ciudad_estado aún es semilla curada', placeholder: false },
 }
 
 // Re-export directly from each module to avoid self-import

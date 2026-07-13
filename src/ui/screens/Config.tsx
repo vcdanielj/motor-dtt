@@ -15,9 +15,13 @@ export default function Config() {
         Diccionario, maestro y catálogos versionados — la config y los crudos son la fuente de verdad; la base estandarizada es una vista derivada (R3).
       </p>
 
-      {seeds.provenance.placeholder && (
+      {seeds.provenance.placeholder ? (
         <div className="mt-4 max-w-[760px] rounded-lg border border-gold bg-amber px-4 py-3 text-xs font-semibold leading-relaxed text-white">
           PLACEHOLDER — Catálogos de muestra — reemplazar con Entregable 3.1. Fuente: {seeds.provenance.source}
+        </div>
+      ) : (
+        <div className="mt-4 max-w-[760px] rounded-lg border border-green bg-green/10 px-4 py-3 text-xs font-semibold leading-relaxed text-navy">
+          Catálogo oficial (Entregable 2.1) cargado — {seeds.provenance.source}
         </div>
       )}
 

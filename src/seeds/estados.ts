@@ -1,4 +1,4 @@
-// PLACEHOLDER — replace with catalogo_estados.csv (Entregable 3.1). VE political division (24).
+// Fuente: Entregable 2.1 Hoja 2 CATALOGO_ESTADOS (24 oficiales)
 export const ESTADOS: string[] = [
   'AMAZONAS',
   'ANZOATEGUI',
@@ -12,7 +12,6 @@ export const ESTADOS: string[] = [
   'DISTRITO CAPITAL',
   'FALCON',
   'GUARICO',
-  'LA GUAIRA',
   'LARA',
   'MERIDA',
   'MIRANDA',
@@ -22,6 +21,7 @@ export const ESTADOS: string[] = [
   'SUCRE',
   'TACHIRA',
   'TRUJILLO',
+  'VARGAS',
   'YARACUY',
   'ZULIA',
 ]
