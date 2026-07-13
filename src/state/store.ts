@@ -21,6 +21,7 @@ interface StoreState {
   distribuidores: ReturnType<typeof adapters.getDistribuidores>
   cola: ReturnType<typeof adapters.getCola>
   maestro: ReturnType<typeof adapters.getMaestro>
+  stages: ReturnType<typeof adapters.getStages>
   ingest: IngestState
   startIngest: (file: File) => Promise<void>
 }
@@ -33,6 +34,7 @@ export const useStore = create<StoreState>((set) => ({
   distribuidores: adapters.getDistribuidores(),
   cola: adapters.getCola(),
   maestro: adapters.getMaestro(),
+  stages: adapters.getStages(),
   ingest: { phase: 'idle', rows: 0, distributors: 0, fileName: null, summary: null, error: null },
   startIngest: async (file) => {
     set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
