@@ -4,17 +4,19 @@ import * as XLSX from 'xlsx'
 import { detectSchema } from '@/ingest/schema-detect'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import { SEEDS } from '@/seeds'
-import { buildIndex, resolveSegmento, type SegmentoContext, type SegmentoResult } from '@/pipeline/segmento'
+import { buildIndex, buildMaestro, resolveSegmento, type SegmentoContext, type SegmentoResult } from '@/pipeline/segmento'
 import { buildEstadoContext, resolveEstado } from '@/pipeline/estado'
 import { MetricsAccumulator, scdcCrudoPct } from '@/pipeline/metrics'
 import { createColaAccumulator, stableId } from '@/pipeline/cola'
 import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import { applyMaestroRecovery, type UnresueltoTally } from '@/pipeline/recovery'
-import type { ResolvedRow } from '@/pipeline/process-row'
+import { processRow, outputColumns, type ResolvedRow } from '@/pipeline/process-row'
+import { csvLine } from '@/reports/csv'
 import type { ProgressEvent, IngestSummary, FileKind, MethodTally, PipelineRunResult } from '@/contracts/pipeline'
 import type { DistribuidorRow } from '@/contracts/dist'
 import type { ColaItem } from '@/contracts/cola'
-import type { FlagRegistro, SchemaMap } from '@/contracts/row'
+import type { MaestroEntry } from '@/contracts/maestro'
+import { OUTPUT_COLUMNS, type FlagRegistro, type SchemaMap } from '@/contracts/row'
 
 const post = (e: ProgressEvent) => (self as unknown as Worker).postMessage(e)
 
@@ -27,9 +29,20 @@ function kindOf(name: string): FileKind | null {
 // A schema is usable if at least one core field (RIF / segment / state) was mapped.
 const schemaIsUsable = (s: SchemaMap) => s.rif !== null || s.segmentoCrudo !== null || s.estadoCrudo !== null
 
-self.onmessage = async (ev: MessageEvent<{ file: File; mode?: 'pipeline' }>) => {
+self.onmessage = async (
+  ev: MessageEvent<{
+    file: File
+    mode?: 'pipeline' | 'export'
+    maestro?: MaestroEntry[]
+    versionDiccionario?: string
+    runId?: string
+  }>,
+) => {
   const { file, mode } = ev.data
   if (mode === 'pipeline') return runPipeline(file)
+  if (mode === 'export') {
+    return runExport(file, ev.data.maestro ?? [], ev.data.versionDiccionario ?? '', ev.data.runId ?? '')
+  }
   return runCounting(file)
 }
 
@@ -356,5 +369,104 @@ async function runPipeline(file: File) {
     post({ type: 'result', result })
   } catch (e) {
     return post({ type: 'error', code: 'PARSE_ERROR', message: (e as Error).message || 'Error al ensamblar el resultado' })
+  }
+}
+
+// ── Export path — on-demand SECOND pass (PRD-sanctioned) that re-streams the file WITH the
+// run's maestro applied (so RIF-recovered rows carry MAESTRO), and serializes the original
+// columns + the 11 PRD §7.3 output columns to a CSV Blob. User-initiated and one-off, so this
+// resolves each row directly via the pure processRow/outputColumns helpers — correctness over
+// the pass-1 fuzzy-memoization trick (which can't be reused: resolution now depends on rif). ──
+const OUTPUT_HEADER = [...OUTPUT_COLUMNS]
+
+async function runExport(file: File, maestroEntries: MaestroEntry[], versionDiccionario: string, runId: string) {
+  const kind = kindOf(file.name)
+  if (!kind) return post({ type: 'error', code: 'UNSUPPORTED', message: `Formato no soportado: ${file.name}` })
+  post({ type: 'start', fileName: file.name, fileKind: kind, bytes: file.size })
+
+  const seg: SegmentoContext = {
+    index: buildIndex(SEEDS.diccionario),
+    maestro: buildMaestro(maestroEntries), // pass 2: the run's maestro IS available now
+    fuzzyThreshold: 92,
+    fuzzySuggestFloor: 80,
+  }
+  const est = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado)
+
+  let schema: SchemaMap | null = null
+  let badSchema = false
+  let headers: string[] = []
+  let rows = 0
+  const parts: string[] = []
+  let bytesRead = file.size
+  const bump = () => post({ type: 'progress', rows, distributors: 0, bytesRead })
+
+  const onHeaders = (hs: string[]) => {
+    headers = hs
+    schema = detectSchema(hs)
+    parts.push(csvLine([...headers, ...OUTPUT_HEADER]) + '\n')
+  }
+
+  const onRow = (rec: Record<string, string>) => {
+    const s = schema!
+    const segCrudo = (s.segmentoCrudo ? rec[s.segmentoCrudo] : '') ?? ''
+    const estCrudo = (s.estadoCrudo ? rec[s.estadoCrudo] : '') ?? ''
+    const rif = (s.rif ? rec[s.rif] : '') ?? ''
+    const ciudad = (s.ciudad ? rec[s.ciudad] : '') ?? ''
+
+    const resolved = processRow({ rif, segmentoCrudo: segCrudo, estadoCrudo: estCrudo, ciudad }, seg, est)
+    const outCols = outputColumns(resolved, versionDiccionario, runId)
+    const rowValues = headers.map((h) => rec[h] ?? '')
+    const outValues = OUTPUT_HEADER.map((c) => outCols[c])
+    parts.push(csvLine([...rowValues, ...outValues]) + '\n')
+
+    rows++
+    if (rows % 5000 === 0) bump()
+  }
+
+  try {
+    if (kind === 'csv') {
+      bytesRead = 0
+      await new Promise<void>((resolve, reject) => {
+        Papa.parse<Record<string, string>>(file, {
+          header: true, skipEmptyLines: true, worker: false,
+          step: (res, parser) => {
+            if (!schema) {
+              onHeaders(res.meta.fields ?? Object.keys(res.data))
+              if (schema && !schemaIsUsable(schema)) { badSchema = true; parser.abort(); return }
+            }
+            if (typeof res.meta.cursor === 'number') bytesRead = res.meta.cursor
+            onRow(res.data)
+          },
+          complete: () => resolve(),
+          error: (err) => reject(err),
+        })
+      })
+    } else {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const json = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
+      if (json.length) {
+        onHeaders(Object.keys(json[0]))
+        if (schema && !schemaIsUsable(schema)) badSchema = true
+      }
+      if (!badSchema) for (const rec of json) onRow(rec)
+    }
+  } catch (err) {
+    return post({ type: 'error', code: 'PARSE_ERROR', message: (err as Error).message })
+  }
+
+  if (badSchema) return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento y estado' })
+  if (rows === 0 || !schema) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados' })
+
+  // Guarded so ANY unexpected throw (e.g. Blob construction) still posts exactly one terminal
+  // error event instead of leaving runExport's promise hanging with no message ever posted.
+  try {
+    bytesRead = file.size
+    bump()
+    const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' })
+    post({ type: 'export', blob, rows })
+  } catch (e) {
+    return post({ type: 'error', code: 'PARSE_ERROR', message: (e as Error).message || 'Error al generar el archivo' })
   }
 }

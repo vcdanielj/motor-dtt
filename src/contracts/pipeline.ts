@@ -43,6 +43,9 @@ export type ProgressEvent =
   | { type: 'progress'; rows: number; distributors: number; bytesRead: number }
   | { type: 'done'; summary: IngestSummary }
   | { type: 'result'; result: PipelineRunResult }
+  // On-demand export pass (mode:'export'): the standardized base as a CSV Blob (structured-
+  // cloneable worker→main), kept separate from `result` since it's a distinct terminal event.
+  | { type: 'export'; blob: Blob; rows: number }
   | { type: 'error'; message: string; code: 'BAD_SCHEMA' | 'PARSE_ERROR' | 'EMPTY' | 'UNSUPPORTED' }
 
 export interface PipelineInput { file: File }

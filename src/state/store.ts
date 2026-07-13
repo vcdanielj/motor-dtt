@@ -19,6 +19,9 @@ function pctEs(n: number): string {
   return `${n}`.replace('.', ',') + '%'
 }
 
+// State of the on-demand base-standardized CSV export (Sprint 2 · X1).
+export type ExportPhase = 'idle' | 'running' | 'done' | 'error'
+
 interface StoreState {
   view: ViewKey
   setView: (v: ViewKey) => void
@@ -30,11 +33,22 @@ interface StoreState {
   stages: ReturnType<typeof adapters.getStages>
   ingest: IngestState
   runResult: PipelineRunResult | null
+  lastFile: File | null           // the run's source file, kept so export can re-stream it
+  runId: string | null            // minted when the pipeline run completes; stamped into the export
+  versionDiccionario: string      // stamped into the export's version_diccionario column
+  exportState: ExportPhase
+  exportRows: number
+  exportError: string | null
   startIngest: (file: File) => Promise<void>
   startPipeline: (file: File) => Promise<void>
+  exportBase: () => Promise<void>
 }
 
-export const useStore = create<StoreState>((set) => ({
+// Sprint 2: no config UI yet for the diccionario version — a fixed tag, same spirit as the
+// hardcoded 92/80 fuzzy thresholds elsewhere (src/worker/ingest.worker.ts, Config.tsx).
+const VERSION_DICCIONARIO = 'v1'
+
+export const useStore = create<StoreState>((set, get) => ({
   view: 'dashboard',
   setView: (view) => set({ view }),
   seeds: adapters.seeds,
@@ -45,6 +59,12 @@ export const useStore = create<StoreState>((set) => ({
   stages: adapters.getStages(),
   ingest: { phase: 'idle', rows: 0, distributors: 0, fileName: null, summary: null, error: null },
   runResult: null,
+  lastFile: null,
+  runId: null,
+  versionDiccionario: VERSION_DICCIONARIO,
+  exportState: 'idle',
+  exportRows: 0,
+  exportError: null,
   startIngest: async (file) => {
     set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
     const startedAt = Date.now()
@@ -59,7 +79,14 @@ export const useStore = create<StoreState>((set) => ({
     }
   },
   startPipeline: async (file) => {
-    set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
+    set({
+      ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null },
+      lastFile: file,
+      runId: null,
+      exportState: 'idle',
+      exportRows: 0,
+      exportError: null,
+    })
     const startedAt = Date.now()
     try {
       const result = await adapters.runPipeline(file, (e: ProgressEvent) => {
@@ -78,9 +105,36 @@ export const useStore = create<StoreState>((set) => ({
           clasificacionN3: pctEs(result.clasificacionPct),
         },
         runResult: { ...result, summary },
+        // Minted here (not in the worker, which never touches Date.now()) so the export pass
+        // can stamp a stable run_id — reusing the timestamp already computed for this run.
+        runId: `run-${startedAt}`,
       }))
     } catch (err) {
       set((s) => ({ ingest: { ...s.ingest, phase: 'error', error: (err as Error).message } }))
+    }
+  },
+  // On-demand export (Sprint 2 · X1): re-streams the run's file through the worker's
+  // export mode WITH the run's maestro, then saves the resulting CSV Blob. No-ops quietly
+  // if there's no completed run yet to reuse.
+  exportBase: async () => {
+    const { lastFile, runResult, runId, versionDiccionario } = get()
+    if (!lastFile || !runResult || !runId) return
+    set({ exportState: 'running', exportRows: 0, exportError: null })
+    try {
+      const { blob, rows } = await adapters.runExport(
+        lastFile,
+        runResult.maestro,
+        versionDiccionario,
+        runId,
+        (e: ProgressEvent) => {
+          if (e.type === 'progress') set({ exportRows: e.rows })
+        },
+      )
+      const outcome = await adapters.saveBlob(blob, `base_estandarizada_${runId}.csv`)
+      // A user-cancelled save picker is not an error — return to idle quietly (brief §5).
+      set({ exportState: outcome === 'cancelled' ? 'idle' : 'done', exportRows: rows })
+    } catch (err) {
+      set({ exportState: 'error', exportError: (err as Error).message })
     }
   },
 }))

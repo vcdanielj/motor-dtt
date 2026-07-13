@@ -1,4 +1,5 @@
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
+import type { MaestroEntry } from '@/contracts/maestro'
 
 export function runIngest(file: File, onProgress: (e: ProgressEvent) => void): Promise<IngestSummary> {
   return new Promise((resolve, reject) => {
@@ -25,5 +26,28 @@ export function runPipeline(file: File, onProgress: (e: ProgressEvent) => void):
     }
     worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
     worker.postMessage({ file, mode: 'pipeline' })
+  })
+}
+
+// On-demand export pass: re-streams `file` through the worker's `mode:'export'` branch with
+// the run's maestro applied, resolving with the finished CSV Blob + row count. Keeps
+// runIngest/runPipeline untouched — this is a new, additive worker mode.
+export function runExport(
+  file: File,
+  maestro: MaestroEntry[],
+  versionDiccionario: string,
+  runId: string,
+  onProgress: (e: ProgressEvent) => void,
+): Promise<{ blob: Blob; rows: number }> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (ev: MessageEvent<ProgressEvent>) => {
+      const e = ev.data
+      onProgress(e)
+      if (e.type === 'export') { worker.terminate(); resolve({ blob: e.blob, rows: e.rows }) }
+      else if (e.type === 'error') { worker.terminate(); reject(new Error(`${e.code}: ${e.message}`)) }
+    }
+    worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
+    worker.postMessage({ file, mode: 'export', maestro, versionDiccionario, runId })
   })
 }

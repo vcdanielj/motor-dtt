@@ -11,6 +11,8 @@ const pctEs = (n: number) => `${n}`.replace('.', ',') + '%'
 export default function Corrida() {
   const ingest = useStore((s) => s.ingest)
   const runResult = useStore((s) => s.runResult)
+  const exportState = useStore((s) => s.exportState)
+  const exportBase = useStore((s) => s.exportBase)
 
   return (
     <div className="max-w-[1240px]">
@@ -55,6 +57,28 @@ export default function Corrida() {
               </span>
             </div>
             <StageBar />
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void exportBase()}
+                disabled={!runResult || exportState === 'running'}
+                className="rounded-md bg-navy px-4 py-2 text-xs font-semibold text-panel transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {exportState === 'running' ? 'Generando…' : 'Descargar base estandarizada'}
+              </button>
+              {exportState === 'running' && (
+                <div
+                  className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-line border-t-navy"
+                  aria-hidden="true"
+                />
+              )}
+              {exportState === 'done' && (
+                <span className="text-xs font-semibold text-green">Descarga lista</span>
+              )}
+              {exportState === 'error' && (
+                <span className="text-xs font-semibold text-red">No se pudo exportar</span>
+              )}
+            </div>
           </div>
         )}
 
