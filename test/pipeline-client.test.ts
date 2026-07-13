@@ -46,6 +46,21 @@ class FakePipelineErrorWorker {
   terminate() {}
 }
 
+// Mirrors the worker's guarded end-of-pass assembly: after streaming, a throw is caught and
+// turned into exactly ONE terminal PARSE_ERROR event (start → error, no result, no double-post).
+class FakeAssemblyErrorWorker {
+  onmessage: ((e: MessageEvent) => void) | null = null
+  onerror: ((e: unknown) => void) | null = null
+  postMessage() {
+    queueMicrotask(() => {
+      this.onmessage?.({ data: { type: 'start', fileName: 'x.csv', fileKind: 'csv', bytes: 10 } } as MessageEvent)
+      this.onmessage?.({ data: { type: 'progress', rows: 5000, distributors: 12, bytesRead: 10 } } as MessageEvent)
+      this.onmessage?.({ data: { type: 'error', code: 'PARSE_ERROR', message: 'Error al ensamblar el resultado' } } as MessageEvent)
+    })
+  }
+  terminate() {}
+}
+
 test('runPipeline streams progress then resolves with the full result', async () => {
   // @ts-expect-error test double
   globalThis.Worker = FakePipelineWorker
@@ -61,4 +76,14 @@ test('runPipeline rejects when the worker emits an error event', async () => {
   // @ts-expect-error test double
   globalThis.Worker = FakePipelineErrorWorker
   await expect(runPipeline(new File(['a'], 'x.csv'), () => {})).rejects.toThrow(/EMPTY/)
+})
+
+test('a throw during end-of-pass assembly yields a single terminal error event (no result, no hang)', async () => {
+  // @ts-expect-error test double
+  globalThis.Worker = FakeAssemblyErrorWorker
+  const events: string[] = []
+  await expect(runPipeline(new File(['a'], 'x.csv'), (e) => events.push(e.type))).rejects.toThrow(/PARSE_ERROR/)
+  // Exactly one terminal event: the final 'error', with no 'result' ever posted.
+  expect(events).toEqual(['start', 'progress', 'error'])
+  expect(events.filter((t) => t === 'result' || t === 'error')).toEqual(['error'])
 })

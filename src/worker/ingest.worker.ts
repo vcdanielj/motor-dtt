@@ -272,80 +272,89 @@ async function runPipeline(file: File) {
   if (badSchema) return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento y estado' })
   if (rows === 0 || !schema) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados' })
 
-  const finished = performance.now()
-  const summary: IngestSummary = {
-    fileName: file.name, fileKind: kind, totalRows: rows, distributors: owners.size,
-    bytes: file.size, schema, headerRowCount: 1,
-    startedAt: 0, finishedAt: 0, durationMs: Math.round(finished - started),
-  }
-  bytesRead = file.size
-  bump()
-
-  const totals = metrics.totals()
-
-  // ── Maestro (M2): build the canonical client segments from this pass's resolved rows, then
-  // use them to recover SIN_CLASIFICAR rows whose RIF is now known — single pass, no re-read. ──
-  const { maestro, conflictos } = maestroBuilder.build()
-  const recovery = applyMaestroRecovery({
-    segmento,
-    tonSinClasificar,
-    unresueltoPorRif,
-    unresueltoDistRif,
-    maestro,
-  })
-
-  const distribuidores: DistribuidorRow[] = metrics.distribuidores().map((d, i) => {
-    // Per-distributor recovery only ever raises the post-cascade share (scdcPost); scdcCrudo
-    // (from exactoCrudo, D5) comes straight from the untouched DistribuidorMetric — the
-    // distributor's raw submission never changes because of a maestro recovery.
-    const recuperadosDist = recovery.recuperadosPorDist.get(d.nombre) ?? 0
-    const resueltoPost = Math.min(d.resueltoPost + recuperadosDist, d.registros)
-    return {
-      id: `d${i}`,
-      nombre: d.nombre,
-      scdcCrudo: scdcCrudoPct(d),
-      scdcPost: pct1(resueltoPost, d.registros),
-      registros: d.registros,
-      ton: d.ton,
+  // End-of-pass assembly (maestro build → recovery → metrics recompute → cola/maestro shaping →
+  // final result) is guarded so ANY unexpected throw still posts exactly one terminal error
+  // instead of leaving runPipeline rejected with no event and the UI hung. Exactly one terminal
+  // event on every path: one `result` on success here, one `error` on parse failure above or in
+  // this catch.
+  try {
+    const finished = performance.now()
+    const summary: IngestSummary = {
+      fileName: file.name, fileKind: kind, totalRows: rows, distributors: owners.size,
+      bytes: file.size, schema, headerRowCount: 1,
+      startedAt: 0, finishedAt: 0, durationMs: Math.round(finished - started),
     }
-  })
+    bytesRead = file.size
+    bump()
 
-  // Maestro entries for the view: sorted by rif for determinism, capped to keep the postMessage
-  // payload small. maestroTotal carries the true distinct-client count.
-  const maestroEntries = [...maestro.values()].sort((a, b) => a.rif.localeCompare(b.rif))
+    const totals = metrics.totals()
 
-  // CONFLICTO_MAYOR → cola: cross-macro RIFs never get a maestro entry, so they need a review
-  // queue item of their own (built from the maestro pass, not from row-crudo grouping).
-  const conflictoItems: ColaItem[] = conflictos.map((c) => ({
-    id: stableId('CONFLICTO_MAYOR', c.rif),
-    tipo: 'CONFLICTO_MAYOR',
-    valorCrudo: c.rif,
-    registrosAfectados: c.registros,
-    tonAfectadas: 0,
-    sugerenciaFuzzy: null,
-    resolucion: null,
-  }))
-  const colaMerged = [...cola.build(200), ...conflictoItems]
-    .sort((a, b) => b.tonAfectadas - a.tonAfectadas)
-    .slice(0, 200)
+    // ── Maestro (M2): build the canonical client segments from this pass's resolved rows, then
+    // use them to recover SIN_CLASIFICAR rows whose RIF is now known — single pass, no re-read. ──
+    const { maestro, conflictos } = maestroBuilder.build()
+    const recovery = applyMaestroRecovery({
+      segmento,
+      tonSinClasificar,
+      unresueltoPorRif,
+      unresueltoDistRif,
+      maestro,
+    })
 
-  const result: PipelineRunResult = {
-    summary,
-    segmento: recovery.segmento,
-    clasificacionPct: pct1(rows - recovery.segmento.SIN_CLASIFICAR, rows),
-    // Capped defensively: recovered rows with no crudo at all raise the numerator (now-classified
-    // rows) without raising crudoPresent (rows that HAD a crudo value), which could otherwise
-    // push this ratio past 100%.
-    clasificacionCrudoPct: Math.min(100, pct1(rows - recovery.segmento.SIN_CLASIFICAR, crudoPresent)),
-    estadoValidoPct: pct1(totals.estadoValido, rows),
-    tonTotal,
-    tonSinClasificar: recovery.tonSinClasificar,
-    distribuidores,
-    cola: colaMerged,
-    maestro: maestroEntries.slice(0, 500),
-    maestroTotal: maestro.size,
-    conflictos: conflictos.length,
-    recuperadosMaestro: recovery.recuperados,
+    const distribuidores: DistribuidorRow[] = metrics.distribuidores().map((d, i) => {
+      // Per-distributor recovery only ever raises the post-cascade share (scdcPost); scdcCrudo
+      // (from exactoCrudo, D5) comes straight from the untouched DistribuidorMetric — the
+      // distributor's raw submission never changes because of a maestro recovery.
+      const recuperadosDist = recovery.recuperadosPorDist.get(d.nombre) ?? 0
+      const resueltoPost = Math.min(d.resueltoPost + recuperadosDist, d.registros)
+      return {
+        id: `d${i}`,
+        nombre: d.nombre,
+        scdcCrudo: scdcCrudoPct(d),
+        scdcPost: pct1(resueltoPost, d.registros),
+        registros: d.registros,
+        ton: d.ton,
+      }
+    })
+
+    // Maestro entries for the view: sorted by rif for determinism, capped to keep the postMessage
+    // payload small. maestroTotal carries the true distinct-client count.
+    const maestroEntries = [...maestro.values()].sort((a, b) => a.rif.localeCompare(b.rif))
+
+    // CONFLICTO_MAYOR → cola: cross-macro RIFs never get a maestro entry, so they need a review
+    // queue item of their own (built from the maestro pass, not from row-crudo grouping).
+    const conflictoItems: ColaItem[] = conflictos.map((c) => ({
+      id: stableId('CONFLICTO_MAYOR', c.rif),
+      tipo: 'CONFLICTO_MAYOR',
+      valorCrudo: c.rif,
+      registrosAfectados: c.registros,
+      tonAfectadas: 0,
+      sugerenciaFuzzy: null,
+      resolucion: null,
+    }))
+    const colaMerged = [...cola.build(200), ...conflictoItems]
+      .sort((a, b) => b.tonAfectadas - a.tonAfectadas)
+      .slice(0, 200)
+
+    const result: PipelineRunResult = {
+      summary,
+      segmento: recovery.segmento,
+      clasificacionPct: pct1(rows - recovery.segmento.SIN_CLASIFICAR, rows),
+      // Capped defensively: recovered rows with no crudo at all raise the numerator (now-classified
+      // rows) without raising crudoPresent (rows that HAD a crudo value), which could otherwise
+      // push this ratio past 100%.
+      clasificacionCrudoPct: Math.min(100, pct1(rows - recovery.segmento.SIN_CLASIFICAR, crudoPresent)),
+      estadoValidoPct: pct1(totals.estadoValido, rows),
+      tonTotal,
+      tonSinClasificar: recovery.tonSinClasificar,
+      distribuidores,
+      cola: colaMerged,
+      maestro: maestroEntries.slice(0, 500),
+      maestroTotal: maestro.size,
+      conflictos: conflictos.length,
+      recuperadosMaestro: recovery.recuperados,
+    }
+    post({ type: 'result', result })
+  } catch (e) {
+    return post({ type: 'error', code: 'PARSE_ERROR', message: (e as Error).message || 'Error al ensamblar el resultado' })
   }
-  post({ type: 'result', result })
 }
