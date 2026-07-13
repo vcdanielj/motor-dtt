@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { adapters } from '@/adapters'
+import { getLearnedDiccionario, getManualMaestro } from '@/storage/db'
+import { loadRunConfig } from '@/storage/run-config'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
 export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'config' | 'manual'
@@ -39,9 +41,13 @@ interface StoreState {
   exportState: ExportPhase
   exportRows: number
   exportError: string | null
+  // Counts of what the analyst has taught the motor so far, persisted in IndexedDB (Sprint 2 ·
+  // C1) — populated on init and after any write, shown read-only in Config.
+  learned: { diccionario: number; maestro: number }
   startIngest: (file: File) => Promise<void>
   startPipeline: (file: File) => Promise<void>
   exportBase: () => Promise<void>
+  refreshLearned: () => Promise<void>
 }
 
 // Sprint 2: no config UI yet for the diccionario version — a fixed tag, same spirit as the
@@ -65,6 +71,7 @@ export const useStore = create<StoreState>((set, get) => ({
   exportState: 'idle',
   exportRows: 0,
   exportError: null,
+  learned: { diccionario: 0, maestro: 0 },
   startIngest: async (file) => {
     set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
     const startedAt = Date.now()
@@ -89,9 +96,12 @@ export const useStore = create<StoreState>((set, get) => ({
     })
     const startedAt = Date.now()
     try {
+      // Merge learned diccionario/manual maestro (IndexedDB) over the embedded seeds so this run
+      // benefits from everything the analyst has taught the motor so far (Sprint 2 · C1).
+      const runConfig = await loadRunConfig()
       const result = await adapters.runPipeline(file, (e: ProgressEvent) => {
         if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors } }))
-      })
+      }, runConfig)
       const summary = { ...result.summary, startedAt, finishedAt: Date.now() }
       set(() => ({
         ingest: { phase: 'done', rows: summary.totalRows, distributors: summary.distributors, fileName: file.name, summary, error: null },
@@ -121,6 +131,8 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!lastFile || !runResult || !runId) return
     set({ exportState: 'running', exportRows: 0, exportError: null })
     try {
+      // Same learned merge as startPipeline, so the export reflects everything taught so far.
+      const runConfig = await loadRunConfig()
       // The worker builds the full maestro itself (two-pass) — we pass only version + runId,
       // never the 500-capped runResult.maestro view array (would cap recovery at 500 RIFs).
       const { blob, rows } = await adapters.runExport(
@@ -130,6 +142,7 @@ export const useStore = create<StoreState>((set, get) => ({
         (e: ProgressEvent) => {
           if (e.type === 'progress') set({ exportRows: e.rows })
         },
+        runConfig,
       )
       const outcome = await adapters.saveBlob(blob, `base_estandarizada_${runId}.csv`)
       // A user-cancelled save picker is not an error — return to idle quietly (brief §5).
@@ -138,4 +151,14 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ exportState: 'error', exportError: (err as Error).message })
     }
   },
+  // Reads persisted counts from IndexedDB (best-effort — [] when unavailable) so Config can show
+  // what's been learned so far. Called on app init and safe to re-call after any storage write.
+  refreshLearned: async () => {
+    const [diccionario, maestro] = await Promise.all([getLearnedDiccionario(), getManualMaestro()])
+    set({ learned: { diccionario: diccionario.length, maestro: maestro.length } })
+  },
 }))
+
+// Populate persisted-learning counts as soon as the store exists (IndexedDB reads are async and
+// best-effort — a no-op fallback to {0,0} when unavailable, e.g. under jsdom in tests).
+void useStore.getState().refreshLearned()

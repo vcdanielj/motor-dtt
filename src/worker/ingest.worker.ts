@@ -18,6 +18,8 @@ import type { ProgressEvent, IngestSummary, FileKind, MethodTally, PipelineRunRe
 import type { DistribuidorRow } from '@/contracts/dist'
 import type { ColaItem } from '@/contracts/cola'
 import type { FlagRegistro, SchemaMap } from '@/contracts/row'
+import type { DiccionarioEntry } from '@/contracts/config'
+import type { MaestroEntry } from '@/contracts/maestro'
 
 const post = (e: ProgressEvent) => (self as unknown as Worker).postMessage(e)
 
@@ -30,18 +32,43 @@ function kindOf(name: string): FileKind | null {
 // A schema is usable if at least one core field (RIF / segment / state) was mapped.
 const schemaIsUsable = (s: SchemaMap) => s.rif !== null || s.segmentoCrudo !== null || s.estadoCrudo !== null
 
+// A manual maestro classification always wins D3 (MANUAL > más reciente > moda) — pre-seeding the
+// MaestroBuilder with a max fechaOrden guarantees it beats any row observed from the actual file.
+const MANUAL_FECHA_ORDEN = Number.MAX_SAFE_INTEGER
+
 self.onmessage = async (
   ev: MessageEvent<{
     file: File
     mode?: 'pipeline' | 'export'
     versionDiccionario?: string
     runId?: string
+    // Learned config (Sprint 2 · C1): the merged diccionario + persisted manual classifications.
+    // Defaulted below so callers that omit them (existing tests, the counting path) are unaffected.
+    diccionario?: DiccionarioEntry[]
+    manualMaestro?: MaestroEntry[]
   }>,
 ) => {
   const { file, mode } = ev.data
-  if (mode === 'pipeline') return runPipeline(file)
-  if (mode === 'export') return runExport(file, ev.data.versionDiccionario ?? '', ev.data.runId ?? '')
+  const diccionario = ev.data.diccionario ?? SEEDS.diccionario
+  const manualMaestro = ev.data.manualMaestro ?? []
+  if (mode === 'pipeline') return runPipeline(file, diccionario, manualMaestro)
+  if (mode === 'export') return runExport(file, ev.data.versionDiccionario ?? '', ev.data.runId ?? '', diccionario, manualMaestro)
   return runCounting(file)
+}
+
+// Pre-seeds a MaestroBuilder with the persisted manual classifications so they win D3 and recover
+// their RIF's rows, whether or not the file resolved that RIF via EXACTO/FUZZY on its own.
+function seedManualMaestro(builder: MaestroBuilder, manualMaestro: MaestroEntry[]): void {
+  for (const m of manualMaestro) {
+    builder.observe({
+      rif: m.rif,
+      segmentoN3: m.segmentoN3 ?? '',
+      macroN1: m.macroN1 ?? '',
+      metodo: 'MANUAL',
+      fechaOrden: MANUAL_FECHA_ORDEN,
+      razonSocial: m.razonSocial,
+    })
+  }
 }
 
 // ── Counting path (unchanged) — feeds startIngest/Corrida's live row/distributor tally. ──
@@ -128,13 +155,13 @@ function pct1(numerator: number, denominator: number): number {
 
 // ── Pipeline path — streams the file through the real resolution engine (segment + estado
 // cascades, metrics, cola candidates) and posts a single rich `result` event at the end. ──
-async function runPipeline(file: File) {
+async function runPipeline(file: File, diccionario: DiccionarioEntry[], manualMaestro: MaestroEntry[]) {
   const kind = kindOf(file.name)
   if (!kind) return post({ type: 'error', code: 'UNSUPPORTED', message: `Formato no soportado: ${file.name}` })
   post({ type: 'start', fileName: file.name, fileKind: kind, bytes: file.size })
 
   const seg: SegmentoContext = {
-    index: buildIndex(SEEDS.diccionario),
+    index: buildIndex(diccionario), // merged: SEEDS.diccionario ++ learned (learned wins)
     maestro: new Map(), // pass 1: no maestro yet
     fuzzyThreshold: 92,
     fuzzySuggestFloor: 80,
@@ -147,7 +174,9 @@ async function runPipeline(file: File) {
   const segmento: MethodTally = { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 }
   // Maestro (M2): built during the same pass from resolved rows, then used at the end to
   // recover rows whose segment never resolved but whose RIF is known — see applyMaestroRecovery.
+  // Pre-seeded with persisted manual classifications so they win D3 and recover their RIF's rows.
   const maestroBuilder = new MaestroBuilder()
+  seedManualMaestro(maestroBuilder, manualMaestro)
   const unresueltoPorRif = new Map<string, UnresueltoTally>()
   const unresueltoDistRif = new Map<string, Map<string, number>>()
 
@@ -378,18 +407,27 @@ async function runPipeline(file: File) {
 // 11 PRD §7.3 output columns to a CSV Blob. User-initiated and one-off, so two file reads is fine
 // — correctness over speed. Does not touch the pipeline/counting branches. The whole thing is
 // guarded so any throw posts exactly one terminal event. ──
-async function runExport(file: File, versionDiccionario: string, runId: string) {
+async function runExport(
+  file: File,
+  versionDiccionario: string,
+  runId: string,
+  diccionario: DiccionarioEntry[],
+  manualMaestro: MaestroEntry[],
+) {
   const kind = kindOf(file.name)
   if (!kind) return post({ type: 'error', code: 'UNSUPPORTED', message: `Formato no soportado: ${file.name}` })
   post({ type: 'start', fileName: file.name, fileKind: kind, bytes: file.size })
 
-  const index = buildIndex(SEEDS.diccionario)
+  const index = buildIndex(diccionario) // merged: SEEDS.diccionario ++ learned (learned wins)
   const est = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado)
 
   try {
-    // ── Pass A — build the full maestro (segment resolved with seeds only; maestro empty). ──
+    // ── Pass A — build the full maestro (segment resolved with the merged index; maestro empty
+    // aside from the pre-seeded manual classifications, which win D3 regardless of what Pass A
+    // observes from the file). ──
     const segSeed: SegmentoContext = { index, maestro: new Map(), fuzzyThreshold: 92, fuzzySuggestFloor: 80 }
     const builder = new MaestroBuilder()
+    seedManualMaestro(builder, manualMaestro)
     let schemaA: SchemaMap | null = null
     let extraCols: ExportExtraCols = { mesCol: null, clienteCol: null }
     const passA = await streamRecords(

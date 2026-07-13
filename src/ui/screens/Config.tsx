@@ -4,6 +4,7 @@ import Card from '@/ui/components/Card'
 
 export default function Config() {
   const seeds = useStore((s) => s.seeds)
+  const learned = useStore((s) => s.learned)
 
   const macroCount = useMemo(() => new Set(seeds.segmentos.map((s) => s.macroN1)).size, [seeds.segmentos])
   const ciudadCount = Object.keys(seeds.ciudadEstado).length
@@ -45,6 +46,23 @@ export default function Config() {
           <div className="flex items-center gap-2">
             <dt className="w-56 flex-none text-slate">Pares ciudad → estado</dt>
             <dd className="font-mono font-semibold text-navy">{ciudadCount}</dd>
+          </div>
+        </dl>
+      </Card>
+
+      <Card className="mt-4 max-w-[760px]">
+        <div className="text-xs font-bold uppercase tracking-wide text-navy">Aprendizaje persistido</div>
+        <div className="mt-1 text-[11px] text-slate">
+          Solo lectura — entradas enseñadas por el analista, guardadas en este dispositivo (IndexedDB) y aplicadas en la próxima corrida.
+        </div>
+        <dl className="mt-3 flex flex-col gap-2 text-xs">
+          <div className="flex items-center gap-2 border-b border-line pb-2">
+            <dt className="w-56 flex-none text-slate">Entradas de diccionario aprendidas</dt>
+            <dd className="font-mono font-semibold text-navy">{learned.diccionario}</dd>
+          </div>
+          <div className="flex items-center gap-2">
+            <dt className="w-56 flex-none text-slate">Clasificaciones manuales de maestro</dt>
+            <dd className="font-mono font-semibold text-navy">{learned.maestro}</dd>
           </div>
         </dl>
       </Card>

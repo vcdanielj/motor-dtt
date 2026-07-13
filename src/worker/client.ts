@@ -1,4 +1,14 @@
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
+import type { DiccionarioEntry } from '@/contracts/config'
+import type { MaestroEntry } from '@/contracts/maestro'
+
+// Learned config (Sprint 2 · C1): the merged diccionario + persisted manual classifications the
+// store loads via loadRunConfig(). Optional so existing callers (and their fakes) keep working —
+// the worker defaults to SEEDS.diccionario + no manual maestro when omitted.
+export interface LearnedConfig {
+  diccionario: DiccionarioEntry[]
+  manualMaestro: MaestroEntry[]
+}
 
 export function runIngest(file: File, onProgress: (e: ProgressEvent) => void): Promise<IngestSummary> {
   return new Promise((resolve, reject) => {
@@ -14,7 +24,11 @@ export function runIngest(file: File, onProgress: (e: ProgressEvent) => void): P
   })
 }
 
-export function runPipeline(file: File, onProgress: (e: ProgressEvent) => void): Promise<PipelineRunResult> {
+export function runPipeline(
+  file: File,
+  onProgress: (e: ProgressEvent) => void,
+  learned?: LearnedConfig,
+): Promise<PipelineRunResult> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (ev: MessageEvent<ProgressEvent>) => {
@@ -24,7 +38,10 @@ export function runPipeline(file: File, onProgress: (e: ProgressEvent) => void):
       else if (e.type === 'error') { worker.terminate(); reject(new Error(`${e.code}: ${e.message}`)) }
     }
     worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
-    worker.postMessage({ file, mode: 'pipeline' })
+    worker.postMessage({
+      file, mode: 'pipeline',
+      diccionario: learned?.diccionario, manualMaestro: learned?.manualMaestro,
+    })
   })
 }
 
@@ -36,6 +53,7 @@ export function runExport(
   versionDiccionario: string,
   runId: string,
   onProgress: (e: ProgressEvent) => void,
+  learned?: LearnedConfig,
 ): Promise<{ blob: Blob; rows: number }> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
@@ -46,6 +64,9 @@ export function runExport(
       else if (e.type === 'error') { worker.terminate(); reject(new Error(`${e.code}: ${e.message}`)) }
     }
     worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
-    worker.postMessage({ file, mode: 'export', versionDiccionario, runId })
+    worker.postMessage({
+      file, mode: 'export', versionDiccionario, runId,
+      diccionario: learned?.diccionario, manualMaestro: learned?.manualMaestro,
+    })
   })
 }
