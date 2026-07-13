@@ -30,3 +30,19 @@ test('records unmapped headers', () => {
   expect(m.unmapped).toContain('COLUMNA_RARA')
   expect(m.segmentoCrudo).toBeNull()
 })
+
+test('real Sell_out header row: does NOT mis-map estado to "VENDEDOR HEINZ"', () => {
+  // Regression: the short needle 'EDO' used to substring-match inside "vENDEDOr".
+  // The real file has both "VENDEDOR HEINZ" and "Estado" columns.
+  const real = [
+    'MES', 'COD. DIST', 'Dir. de Entrega', 'DISTRIBUIDOR  ', 'VENDEDOR HEINZ',
+    'Código Vendedor', 'Nombre Vendedor', 'Código Cliente', 'CLIENTE', 'RIF',
+    'Canal/Tipo de Cliente', 'Ciudad', 'Municipio', 'Estado', 'FECHA', 'CAJAS', 'TON', 'UNIDADES',
+  ]
+  const m = detectSchema(real)
+  expect(m.rif).toBe('RIF')
+  expect(m.segmentoCrudo).toBe('Canal/Tipo de Cliente')
+  expect(m.estadoCrudo).toBe('Estado') // NOT 'VENDEDOR HEINZ'
+  expect(m.ciudad).toBe('Ciudad')
+  expect(m.passthrough).toEqual(expect.arrayContaining(['CAJAS', 'TON', 'UNIDADES', 'FECHA']))
+})
