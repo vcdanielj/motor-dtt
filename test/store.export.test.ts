@@ -46,7 +46,7 @@ async function seedCompletedRun(file: File) {
   await useStore.getState().startPipeline(file)
 }
 
-test('exportBase reuses the run file + maestro, calls runExport then saveBlob, and lands on done', async () => {
+test('exportBase reuses the run file, calls runExport (version+runId only, no maestro) then saveBlob, and lands on done', async () => {
   const file = new File(['a'], 'real.csv')
   await seedCompletedRun(file)
   const { runId, versionDiccionario } = useStore.getState()
@@ -57,8 +57,8 @@ test('exportBase reuses the run file + maestro, calls runExport then saveBlob, a
   let saveArgs: unknown[] = []
   const originalRunExport = adapters.runExport
   const originalSaveBlob = adapters.saveBlob
-  adapters.runExport = async (f, maestro, version, id, onProgress: (e: ProgressEvent) => void) => {
-    runExportArgs = [f, maestro, version, id]
+  adapters.runExport = async (f, version, id, onProgress: (e: ProgressEvent) => void) => {
+    runExportArgs = [f, version, id]
     onProgress({ type: 'progress', rows: 5000, distributors: 0, bytesRead: 0 })
     return { blob: fakeBlob, rows: 5000 }
   }
@@ -72,10 +72,12 @@ test('exportBase reuses the run file + maestro, calls runExport then saveBlob, a
 
     expect(useStore.getState().exportState).toBe('done')
     expect(useStore.getState().exportRows).toBe(5000)
+    // Only 3 args: file, version, runId — the capped runResult.maestro is NOT passed (the worker
+    // builds the full maestro itself), so recovery can never be limited to the 500-row view array.
+    expect(runExportArgs).toHaveLength(3)
     expect(runExportArgs[0]).toBe(file)
-    expect(runExportArgs[1]).toEqual(RESULT.maestro)
-    expect(runExportArgs[2]).toBe(versionDiccionario)
-    expect(runExportArgs[3]).toBe(runId)
+    expect(runExportArgs[1]).toBe(versionDiccionario)
+    expect(runExportArgs[2]).toBe(runId)
     expect(saveArgs[0]).toBe(fakeBlob)
     expect(saveArgs[1]).toBe(`base_estandarizada_${runId}.csv`)
   } finally {
@@ -97,7 +99,7 @@ test('a cancelled File System Access save returns exportState to idle quietly (n
   const originalRunExport = adapters.runExport
   const originalSaveBlob = adapters.saveBlob
   adapters.runExport = async () => ({ blob: new Blob(['x']), rows: 10 })
-  adapters.saveBlob = async () => 'cancelled'
+  adapters.saveBlob = async () => 'cancelled' as const
 
   try {
     await useStore.getState().exportBase()

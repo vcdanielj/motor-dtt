@@ -121,9 +121,10 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!lastFile || !runResult || !runId) return
     set({ exportState: 'running', exportRows: 0, exportError: null })
     try {
+      // The worker builds the full maestro itself (two-pass) — we pass only version + runId,
+      // never the 500-capped runResult.maestro view array (would cap recovery at 500 RIFs).
       const { blob, rows } = await adapters.runExport(
         lastFile,
-        runResult.maestro,
         versionDiccionario,
         runId,
         (e: ProgressEvent) => {
