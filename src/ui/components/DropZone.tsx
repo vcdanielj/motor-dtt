@@ -7,7 +7,7 @@ export default function DropZone() {
 
   const handleFile = (file: File | null | undefined) => {
     if (!file) return
-    void useStore.getState().startIngest(file)
+    void useStore.getState().startPipeline(file)
   }
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {

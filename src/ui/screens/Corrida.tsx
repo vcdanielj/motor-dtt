@@ -5,8 +5,12 @@ import StageBar from '@/ui/components/StageBar'
 
 const fmt = new Intl.NumberFormat('es-VE')
 
+// Renders a fraction-of-100 as an es-VE percentage string ("92,4%") — comma decimal.
+const pctEs = (n: number) => `${n}`.replace('.', ',') + '%'
+
 export default function Corrida() {
   const ingest = useStore((s) => s.ingest)
+  const runResult = useStore((s) => s.runResult)
 
   return (
     <div className="max-w-[1240px]">
@@ -37,8 +41,17 @@ export default function Corrida() {
           <div>
             <div className="rounded-md border border-green bg-bg px-4 py-3 text-sm font-semibold text-green">
               <span className="font-mono">
-                {fmt.format(ingest.summary.totalRows)} filas · {fmt.format(ingest.summary.distributors)} distribuidores ·{' '}
-                {fmt.format(ingest.summary.durationMs)} ms
+                {runResult ? (
+                  <>
+                    {fmt.format(ingest.summary.totalRows)} filas · clasificación {pctEs(runResult.clasificacionPct)} ·
+                    estado válido {pctEs(runResult.estadoValidoPct)}
+                  </>
+                ) : (
+                  <>
+                    {fmt.format(ingest.summary.totalRows)} filas · {fmt.format(ingest.summary.distributors)} distribuidores ·{' '}
+                    {fmt.format(ingest.summary.durationMs)} ms
+                  </>
+                )}
               </span>
             </div>
             <StageBar />

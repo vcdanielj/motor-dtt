@@ -1,11 +1,4 @@
-export interface DistribuidorRow {
-  id: string
-  nombre: string
-  scdcCrudo: number
-  scdcPost: number
-  registros: number
-  ton: number
-}
+import type { DistribuidorRow } from '@/contracts/dist'
 
 export const MOCK_DISTRIBUIDORES: DistribuidorRow[] = [
   { id: 'd0', nombre: 'EXCELSIOR RK', scdcCrudo: 31, scdcPost: 74, registros: 52014, ton: 418.2 },

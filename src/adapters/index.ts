@@ -4,7 +4,7 @@ import { MOCK_COLA } from '@/mocks/cola'
 import { MOCK_MAESTRO } from '@/mocks/maestro'
 import { MOCK_STAGES } from '@/mocks/corrida'
 import { SEEDS } from '@/seeds'
-import { runIngest } from '@/worker/client'
+import { runIngest, runPipeline } from '@/worker/client'
 
 // The single boundary where mocks are bound. Real modules replace these fields sprint by sprint.
 // This is the ONLY module allowed to import from src/mocks/ and src/seeds/ — every UI task
@@ -17,4 +17,5 @@ export const adapters = {
   getMaestro: () => MOCK_MAESTRO,
   getStages: () => MOCK_STAGES,
   ingest: runIngest, // ← already real
+  runPipeline, // ← already real: streams the file through the resolution engine
 }

@@ -1,4 +1,4 @@
-import type { ProgressEvent, IngestSummary } from '@/contracts/pipeline'
+import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
 export function runIngest(file: File, onProgress: (e: ProgressEvent) => void): Promise<IngestSummary> {
   return new Promise((resolve, reject) => {
@@ -11,5 +11,19 @@ export function runIngest(file: File, onProgress: (e: ProgressEvent) => void): P
     }
     worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
     worker.postMessage({ file })
+  })
+}
+
+export function runPipeline(file: File, onProgress: (e: ProgressEvent) => void): Promise<PipelineRunResult> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (ev: MessageEvent<ProgressEvent>) => {
+      const e = ev.data
+      onProgress(e)
+      if (e.type === 'result') { worker.terminate(); resolve(e.result) }
+      else if (e.type === 'error') { worker.terminate(); reject(new Error(`${e.code}: ${e.message}`)) }
+    }
+    worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
+    worker.postMessage({ file, mode: 'pipeline' })
   })
 }
