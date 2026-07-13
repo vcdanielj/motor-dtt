@@ -1,0 +1,15 @@
+// PLACEHOLDER — replace with ciudad_estado.csv (curated once from real data, PRD R4).
+export const CIUDAD_ESTADO: Record<string, string> = {
+  CARACAS: 'DISTRITO CAPITAL',
+  MARACAIBO: 'ZULIA',
+  VALENCIA: 'CARABOBO',
+  BARQUISIMETO: 'LARA',
+  MARACAY: 'ARAGUA',
+  'CIUDAD GUAYANA': 'BOLIVAR',
+  'PUERTO ORDAZ': 'BOLIVAR',
+  MATURIN: 'MONAGAS',
+  'SAN CRISTOBAL': 'TACHIRA',
+  BARCELONA: 'ANZOATEGUI',
+  CUMANA: 'SUCRE',
+  MERIDA: 'MERIDA',
+}
