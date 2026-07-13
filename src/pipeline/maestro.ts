@@ -116,11 +116,14 @@ export class MaestroBuilder {
 type SegEntry = [string, SegmentoAggregate]
 type ReglaCanonica = 'MANUAL' | 'RECIENTE' | 'MODA'
 
-/** D3: MANUAL > más reciente > moda (alphabetical final tiebreak). */
+/** D3: MANUAL > más reciente > moda (alphabetical final tiebreak).
+ *  Provenance rule: when the winner comes from the MANUAL pool, reglaCanonica stays 'MANUAL'
+ *  regardless of how an internal date/count tie was broken. 'RECIENTE'/'MODA' apply ONLY when
+ *  the RIF has no manual observation. */
 function pickWinner(segEntries: SegEntry[]): [string, ReglaCanonica] {
   const manualEntries = segEntries.filter(([, s]) => s.hasManual)
-  const pool = manualEntries.length > 0 ? manualEntries : segEntries
-  let regla: ReglaCanonica = manualEntries.length > 0 ? 'MANUAL' : 'RECIENTE'
+  const isManual = manualEntries.length > 0
+  const pool = isManual ? manualEntries : segEntries
 
   const maxFecha = pool.reduce<number | null>((max, [, s]) => {
     if (s.latestFecha == null) return max
@@ -129,14 +132,15 @@ function pickWinner(segEntries: SegEntry[]): [string, ReglaCanonica] {
   }, null)
 
   const candidates = pool.filter(([, s]) => s.latestFecha === maxFecha)
-  if (candidates.length > 1) {
-    regla = 'MODA'
-    candidates.sort((a, b) => {
-      if (b[1].count !== a[1].count) return b[1].count - a[1].count
-      return a[0].localeCompare(b[0])
-    })
-  }
+  candidates.sort((a, b) => {
+    if (b[1].count !== a[1].count) return b[1].count - a[1].count
+    return a[0].localeCompare(b[0])
+  })
 
+  // Manual provenance always labels MANUAL, even when a tie was broken by count/alphabetical.
+  if (isManual) return [candidates[0][0], 'MANUAL']
+  // No manual: single strict-max fecha → RECIENTE; a fecha tie across ≥2 (or all null) → MODA.
+  const regla: ReglaCanonica = candidates.length > 1 ? 'MODA' : 'RECIENTE'
   return [candidates[0][0], regla]
 }
 

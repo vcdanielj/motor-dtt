@@ -105,6 +105,23 @@ describe('MaestroBuilder — D3 MODA tiebreak', () => {
     expect(entry?.reglaCanonica).toBe('MODA')
   })
 
+  test('manual-pool date tie keeps reglaCanonica MANUAL (provenance), tie broken by count', () => {
+    const b = new MaestroBuilder()
+    for (let i = 0; i < 2; i++) {
+      b.observe({ rif: 'J-3c', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'MANUAL', fechaOrden: 202510 })
+    }
+    for (let i = 0; i < 5; i++) {
+      b.observe({ rif: 'J-3c', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'MANUAL', fechaOrden: 202510 })
+    }
+
+    const { maestro, conflictos } = b.build()
+
+    expect(conflictos).toEqual([])
+    const entry = maestro.get(normalizeRif('J-3c'))
+    expect(entry?.segmentoN3).toBe('BODEGA')            // count breaks the manual-pool date tie
+    expect(entry?.reglaCanonica).toBe('MANUAL')          // NOT 'MODA' — provenance preserved
+  })
+
   test('equal counts and equal fechas fall back to alphabetical segmentoN3', () => {
     const b = new MaestroBuilder()
     b.observe({ rif: 'J-3b', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
