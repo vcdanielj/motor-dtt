@@ -14,3 +14,10 @@ export function csvCell(value: string): string {
 export function csvLine(cells: string[]): string {
   return cells.map(csvCell).join(',')
 }
+
+/** Build a full CSV document (header row + data rows) from a matrix of cells, CRLF-joined
+ *  (RFC 4180 line endings). The first row is conventionally the header — callers include it
+ *  explicitly in `rows`. No trailing newline. */
+export function csvDocument(rows: string[][]): string {
+  return rows.map(csvLine).join('\r\n')
+}

@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'vitest'
-import { csvCell, csvLine } from '@/reports/csv'
+import { csvCell, csvLine, csvDocument } from '@/reports/csv'
 
 describe('csvCell', () => {
   test('plain values pass through unquoted', () => {
@@ -38,5 +38,29 @@ describe('csvLine', () => {
 
   test('empty row yields an empty string', () => {
     expect(csvLine([])).toBe('')
+  })
+})
+
+describe('csvDocument', () => {
+  test('joins header + rows with CRLF, no trailing newline', () => {
+    const doc = csvDocument([
+      ['variante', 'segmento_n3'],
+      ['BODEGAS', 'BODEGA'],
+      ['ABASTOS', 'ABASTO'],
+    ])
+    expect(doc).toBe('variante,segmento_n3\r\nBODEGAS,BODEGA\r\nABASTOS,ABASTO')
+  })
+
+  test('quotes cells within each row as csvLine would', () => {
+    const doc = csvDocument([['a', 'b'], ['Bodega, Central', 'x']])
+    expect(doc).toBe('a,b\r\n"Bodega, Central",x')
+  })
+
+  test('empty matrix yields an empty string', () => {
+    expect(csvDocument([])).toBe('')
+  })
+
+  test('single row (header only)', () => {
+    expect(csvDocument([['a', 'b']])).toBe('a,b')
   })
 })

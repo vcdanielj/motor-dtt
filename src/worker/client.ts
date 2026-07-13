@@ -10,6 +10,14 @@ export interface LearnedConfig {
   manualMaestro: MaestroEntry[]
 }
 
+// Editable fuzzy thresholds (Sprint 2 · C3), persisted in IndexedDB meta and loaded into the
+// store. Optional so existing callers (and their fakes) keep working — the worker defaults to
+// 92/80 when omitted.
+export interface ThresholdConfig {
+  fuzzyThreshold: number
+  fuzzySuggestFloor: number
+}
+
 export function runIngest(file: File, onProgress: (e: ProgressEvent) => void): Promise<IngestSummary> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
@@ -28,6 +36,7 @@ export function runPipeline(
   file: File,
   onProgress: (e: ProgressEvent) => void,
   learned?: LearnedConfig,
+  thresholds?: ThresholdConfig,
 ): Promise<PipelineRunResult> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
@@ -41,6 +50,7 @@ export function runPipeline(
     worker.postMessage({
       file, mode: 'pipeline',
       diccionario: learned?.diccionario, manualMaestro: learned?.manualMaestro,
+      fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })
 }
@@ -54,6 +64,7 @@ export function runExport(
   runId: string,
   onProgress: (e: ProgressEvent) => void,
   learned?: LearnedConfig,
+  thresholds?: ThresholdConfig,
 ): Promise<{ blob: Blob; rows: number }> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module' })
@@ -67,6 +78,7 @@ export function runExport(
     worker.postMessage({
       file, mode: 'export', versionDiccionario, runId,
       diccionario: learned?.diccionario, manualMaestro: learned?.manualMaestro,
+      fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })
 }

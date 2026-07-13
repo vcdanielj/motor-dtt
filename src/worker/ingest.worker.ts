@@ -46,13 +46,25 @@ self.onmessage = async (
     // Defaulted below so callers that omit them (existing tests, the counting path) are unaffected.
     diccionario?: DiccionarioEntry[]
     manualMaestro?: MaestroEntry[]
+    // Editable fuzzy thresholds (Sprint 2 · C3), persisted in IndexedDB meta. Defaulted to the
+    // long-standing 92/80 so callers that omit them (existing tests, the counting path) behave
+    // exactly as before.
+    fuzzyThreshold?: number
+    fuzzySuggestFloor?: number
   }>,
 ) => {
   const { file, mode } = ev.data
   const diccionario = ev.data.diccionario ?? SEEDS.diccionario
   const manualMaestro = ev.data.manualMaestro ?? []
-  if (mode === 'pipeline') return runPipeline(file, diccionario, manualMaestro)
-  if (mode === 'export') return runExport(file, ev.data.versionDiccionario ?? '', ev.data.runId ?? '', diccionario, manualMaestro)
+  const fuzzyThreshold = ev.data.fuzzyThreshold ?? 92
+  const fuzzySuggestFloor = ev.data.fuzzySuggestFloor ?? 80
+  if (mode === 'pipeline') return runPipeline(file, diccionario, manualMaestro, fuzzyThreshold, fuzzySuggestFloor)
+  if (mode === 'export') {
+    return runExport(
+      file, ev.data.versionDiccionario ?? '', ev.data.runId ?? '', diccionario, manualMaestro,
+      fuzzyThreshold, fuzzySuggestFloor,
+    )
+  }
   return runCounting(file)
 }
 
@@ -155,7 +167,13 @@ function pct1(numerator: number, denominator: number): number {
 
 // ── Pipeline path — streams the file through the real resolution engine (segment + estado
 // cascades, metrics, cola candidates) and posts a single rich `result` event at the end. ──
-async function runPipeline(file: File, diccionario: DiccionarioEntry[], manualMaestro: MaestroEntry[]) {
+async function runPipeline(
+  file: File,
+  diccionario: DiccionarioEntry[],
+  manualMaestro: MaestroEntry[],
+  fuzzyThreshold: number,
+  fuzzySuggestFloor: number,
+) {
   const kind = kindOf(file.name)
   if (!kind) return post({ type: 'error', code: 'UNSUPPORTED', message: `Formato no soportado: ${file.name}` })
   post({ type: 'start', fileName: file.name, fileKind: kind, bytes: file.size })
@@ -163,8 +181,8 @@ async function runPipeline(file: File, diccionario: DiccionarioEntry[], manualMa
   const seg: SegmentoContext = {
     index: buildIndex(diccionario), // merged: SEEDS.diccionario ++ learned (learned wins)
     maestro: new Map(), // pass 1: no maestro yet
-    fuzzyThreshold: 92,
-    fuzzySuggestFloor: 80,
+    fuzzyThreshold,
+    fuzzySuggestFloor,
   }
   const est = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado)
   const metrics = new MetricsAccumulator()
@@ -413,6 +431,8 @@ async function runExport(
   runId: string,
   diccionario: DiccionarioEntry[],
   manualMaestro: MaestroEntry[],
+  fuzzyThreshold: number,
+  fuzzySuggestFloor: number,
 ) {
   const kind = kindOf(file.name)
   if (!kind) return post({ type: 'error', code: 'UNSUPPORTED', message: `Formato no soportado: ${file.name}` })
@@ -425,7 +445,7 @@ async function runExport(
     // ── Pass A — build the full maestro (segment resolved with the merged index; maestro empty
     // aside from the pre-seeded manual classifications, which win D3 regardless of what Pass A
     // observes from the file). ──
-    const segSeed: SegmentoContext = { index, maestro: new Map(), fuzzyThreshold: 92, fuzzySuggestFloor: 80 }
+    const segSeed: SegmentoContext = { index, maestro: new Map(), fuzzyThreshold, fuzzySuggestFloor }
     const builder = new MaestroBuilder()
     seedManualMaestro(builder, manualMaestro)
     let schemaA: SchemaMap | null = null
@@ -443,7 +463,7 @@ async function runExport(
     const { maestro } = builder.build()
 
     // ── Pass B — write with the full maestro applied. ──
-    const seg: SegmentoContext = { index, maestro, fuzzyThreshold: 92, fuzzySuggestFloor: 80 }
+    const seg: SegmentoContext = { index, maestro, fuzzyThreshold, fuzzySuggestFloor }
     let schemaB: SchemaMap | null = null
     let headers: string[] = []
     let rows = 0

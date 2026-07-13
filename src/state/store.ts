@@ -1,7 +1,12 @@
 import { create } from 'zustand'
+import Papa from 'papaparse'
 import { adapters } from '@/adapters'
-import { getLearnedDiccionario, getManualMaestro, putLearnedDiccionario, putManualMaestro } from '@/storage/db'
+import {
+  getLearnedDiccionario, getManualMaestro, putLearnedDiccionario, putManualMaestro,
+  getMeta, putMeta, clearLearned,
+} from '@/storage/db'
 import { loadRunConfig } from '@/storage/run-config'
+import { csvDocument } from '@/reports/csv'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
 export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'config' | 'manual'
@@ -24,6 +29,10 @@ function pctEs(n: number): string {
 // State of the on-demand base-standardized CSV export (Sprint 2 · X1).
 export type ExportPhase = 'idle' | 'running' | 'done' | 'error'
 
+// Editable fuzzy thresholds (Sprint 2 · C3) — persisted in IndexedDB meta, applied by the
+// pipeline/export worker calls, defaults match the long-standing hardcoded 92/80.
+export interface Thresholds { fuzzyThreshold: number; fuzzySuggestFloor: number }
+
 interface StoreState {
   view: ViewKey
   setView: (v: ViewKey) => void
@@ -44,11 +53,19 @@ interface StoreState {
   // Counts of what the analyst has taught the motor so far, persisted in IndexedDB (Sprint 2 ·
   // C1) — populated on init and after any write, shown read-only in Config.
   learned: { diccionario: number; maestro: number }
+  // Editable fuzzy thresholds (Sprint 2 · C3): loaded from meta on init, applied to every
+  // subsequent pipeline/export run via the worker message.
+  thresholds: Thresholds
   startIngest: (file: File) => Promise<void>
   startPipeline: (file: File) => Promise<void>
   exportBase: () => Promise<void>
   refreshLearned: () => Promise<void>
   resolveColaItem: (id: string, segmentoN3: string) => Promise<void>
+  exportLearnedDiccionario: () => Promise<void>
+  exportManualMaestro: () => Promise<void>
+  importDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
+  saveThresholds: (fuzzyThreshold: number, fuzzySuggestFloor: number) => Promise<void>
+  resetLearned: () => Promise<void>
 }
 
 // Sprint 2: no config UI yet for the diccionario version — a fixed tag, same spirit as the
@@ -73,6 +90,7 @@ export const useStore = create<StoreState>((set, get) => ({
   exportRows: 0,
   exportError: null,
   learned: { diccionario: 0, maestro: 0 },
+  thresholds: { fuzzyThreshold: 92, fuzzySuggestFloor: 80 },
   startIngest: async (file) => {
     set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
     const startedAt = Date.now()
@@ -102,7 +120,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const runConfig = await loadRunConfig()
       const result = await adapters.runPipeline(file, (e: ProgressEvent) => {
         if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors } }))
-      }, runConfig)
+      }, runConfig, get().thresholds)
       const summary = { ...result.summary, startedAt, finishedAt: Date.now() }
       set(() => ({
         ingest: { phase: 'done', rows: summary.totalRows, distributors: summary.distributors, fileName: file.name, summary, error: null },
@@ -144,6 +162,7 @@ export const useStore = create<StoreState>((set, get) => ({
           if (e.type === 'progress') set({ exportRows: e.rows })
         },
         runConfig,
+        get().thresholds,
       )
       const outcome = await adapters.saveBlob(blob, `base_estandarizada_${runId}.csv`)
       // A user-cancelled save picker is not an error — return to idle quietly (brief §5).
@@ -201,8 +220,91 @@ export const useStore = create<StoreState>((set, get) => ({
       cola: s.cola.map((c) => (c.id === id ? { ...c, resolucion: segmentoN3 } : c)),
     }))
   },
+  // Downloads everything the analyst has taught the diccionario so far as a CSV — a local
+  // snapshot the analyst can back up or hand off (Sprint 2 · C3). No sync, no server.
+  exportLearnedDiccionario: async () => {
+    const learned = await getLearnedDiccionario()
+    const doc = csvDocument([
+      ['variante', 'segmento_n3', 'macro_canal_n1', 'codigo'],
+      ...learned.map((e) => [e.variante, e.segmentoN3, e.macroN1, e.codigo]),
+    ])
+    const blob = new Blob([doc], { type: 'text/csv;charset=utf-8;' })
+    await adapters.saveBlob(blob, 'diccionario_aprendido.csv')
+  },
+  exportManualMaestro: async () => {
+    const maestro = await getManualMaestro()
+    const doc = csvDocument([
+      ['rif', 'segmento_n3', 'macro_canal_n1', 'regla'],
+      ...maestro.map((e) => [e.rif, e.segmentoN3 ?? '', e.macroN1 ?? '', e.reglaCanonica ?? '']),
+    ])
+    const blob = new Blob([doc], { type: 'text/csv;charset=utf-8;' })
+    await adapters.saveBlob(blob, 'maestro_manual.csv')
+  },
+  // Imports a diccionario CSV the analyst picked from disk (PapaParse on the MAIN thread — small
+  // file, no worker needed). Accepts `variante` + `segmento_n3`/`segmentoN3` headers, matched
+  // case-insensitively; each row's segment must resolve exactly against the seed catalog (never
+  // trusts an arbitrary macro/codigo pair from the file) — unknown segments or empty rows are
+  // skipped, not silently misfiled. Never throws to the UI: a malformed file just yields
+  // { added: 0, skipped: N }.
+  importDiccionarioCsv: async (file) => {
+    const text = await file.text()
+    const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true })
+    const fields = parsed.meta.fields ?? []
+    const normHeader = (h: string) => h.trim().toLowerCase()
+    const varianteKey = fields.find((f) => normHeader(f) === 'variante')
+    const segmentoKey = fields.find((f) => normHeader(f) === 'segmento_n3' || normHeader(f) === 'segmenton3')
+
+    let added = 0
+    let skipped = 0
+    if (varianteKey && segmentoKey) {
+      const segmentos = get().seeds.segmentos
+      for (const row of parsed.data) {
+        const variante = (row[varianteKey] ?? '').trim()
+        const segmentoN3 = (row[segmentoKey] ?? '').trim()
+        const segmento = segmentos.find((s) => s.n3 === segmentoN3)
+        if (!variante || !segmento) { skipped++; continue }
+        await putLearnedDiccionario({
+          variante, segmentoN3: segmento.n3, macroN1: segmento.macroN1, codigo: segmento.codigo,
+          metodo: 'EXACTO', activa: true,
+        })
+        added++
+      }
+    } else {
+      skipped = parsed.data.length
+    }
+
+    await get().refreshLearned()
+    return { added, skipped }
+  },
+  // Persists the fuzzy thresholds to meta and updates the store, clamped to a sane range so a
+  // typo can't wedge the pipeline: floor in [50,99], threshold in [floor,100] (floor ≤ threshold).
+  saveThresholds: async (fuzzyThreshold, fuzzySuggestFloor) => {
+    const fuzzySuggestFloorClamped = Math.min(99, Math.max(50, Math.round(fuzzySuggestFloor)))
+    const fuzzyThresholdClamped = Math.min(100, Math.max(fuzzySuggestFloorClamped, Math.round(fuzzyThreshold)))
+    await Promise.all([
+      putMeta('fuzzyThreshold', fuzzyThresholdClamped),
+      putMeta('fuzzySuggestFloor', fuzzySuggestFloorClamped),
+    ])
+    set({ thresholds: { fuzzyThreshold: fuzzyThresholdClamped, fuzzySuggestFloor: fuzzySuggestFloorClamped } })
+  },
+  // Wipes everything the analyst has taught the motor (learned diccionario + manual maestro) —
+  // an explicit, deliberate reset the Config UI gates behind a two-click inline confirm.
+  resetLearned: async () => {
+    await clearLearned()
+    await get().refreshLearned()
+  },
 }))
 
 // Populate persisted-learning counts as soon as the store exists (IndexedDB reads are async and
 // best-effort — a no-op fallback to {0,0} when unavailable, e.g. under jsdom in tests).
 void useStore.getState().refreshLearned()
+
+// Load persisted fuzzy thresholds (Sprint 2 · C3) as soon as the store exists — falls back to the
+// long-standing 92/80 defaults when meta is empty or IndexedDB is unavailable.
+void (async () => {
+  const [fuzzyThreshold, fuzzySuggestFloor] = await Promise.all([
+    getMeta('fuzzyThreshold', 92),
+    getMeta('fuzzySuggestFloor', 80),
+  ])
+  useStore.setState({ thresholds: { fuzzyThreshold, fuzzySuggestFloor } })
+})()
