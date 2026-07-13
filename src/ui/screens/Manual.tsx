@@ -298,16 +298,22 @@ export default function Manual() {
               llenan con los datos reales de tu corrida: % de clasificación, estado válido y calidad por
               distribuidor.
             </Step>
-            <Step n={4} title="Resolver la cola" soon>
-              La <strong>Cola de revisión</strong> lista lo que quedó sin resolver, ordenado por toneladas. Completas
-              la clasificación de las variantes nuevas y de los clientes de alto volumen; el motor aprende esas
-              equivalencias para las próximas corridas.
+            <Step n={4} title="Resolver la cola">
+              La <strong>Cola de revisión</strong> lista lo que quedó sin resolver, ordenado por toneladas. Asignas el
+              segmento correcto a cada pendiente y la clasificación <strong>se guarda localmente (IndexedDB)</strong>:
+              el motor la aplica automáticamente en la próxima corrida —las variantes van al diccionario aprendido y
+              los conflictos de RIF al maestro manual.
             </Step>
-            <Step n={5} title="Exportar la base estandarizada" soon>
+            <Step n={5} title="Exportar la base estandarizada">
               Descargas el CSV con todas las columnas originales intactas más las columnas estandarizadas (segmento
-              N3, macro-canal, estado, método, banderas y trazabilidad) listo para Power BI.
+              N3, macro-canal, estado, método, banderas y trazabilidad) listo para Power BI, desde el botón{' '}
+              <strong>«Descargar base estandarizada»</strong> en <strong>Corrida</strong>.
             </Step>
           </ol>
+          <Callout tone="green" icon="⛁" title="Tu aprendizaje persiste">
+            Las clasificaciones que resuelves en la Cola se guardan en este navegador (IndexedDB) y se conservan de
+            una corrida a la siguiente. Es almacenamiento local: no se sincroniza ni se sube a ningún lado.
+          </Callout>
           <Callout tone="cyan" icon="↺" title="Reproducible por diseño">
             La misma corrida, con la misma configuración, produce siempre el mismo resultado. La base estandarizada
             es una vista derivada: siempre se puede regenerar desde los crudos.
@@ -383,8 +389,9 @@ export default function Manual() {
               regla canónica aplicada. Buscable por RIF o nombre.
             </ScreenCard>
             <ScreenCard icon="⚙" title="Configuración">
-              Resumen de los catálogos cargados (37 segmentos, 8 macro-canales, 24 estados, diccionario) y los
-              umbrales del motor, en modo lectura.
+              Catálogos (37 segmentos, 8 macro-canales, 24 estados, diccionario) y umbrales del motor, ahora
+              editables. Puedes exportar e importar (CSV) el diccionario y el maestro aprendidos, y hay un botón
+              «Restablecer aprendizaje».
             </ScreenCard>
           </div>
         </section>
@@ -411,12 +418,11 @@ export default function Manual() {
                 <>
                   <Chip tone="gold">por RIF</Chip>
                   <Chip tone="navy">confianza N3</Chip>
-                  <Chip tone="slate">en desarrollo</Chip>
                 </>
               }
             >
-              ¿Este cliente ya está clasificado en el maestro? Se usa su segmento, sin importar lo que teclee el
-              distribuidor esta vez.
+              ¿Este cliente ya está clasificado en el maestro? Se usa su segmento (por RIF, regla D3), sin importar lo
+              que teclee el distribuidor esta vez, y recupera las filas que llegan con el segmento vacío.
             </CascadeNode>
             <CascadeArrow>si no está en el maestro</CascadeArrow>
             <CascadeNode
@@ -677,13 +683,10 @@ export default function Manual() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Chip tone="gold">CONFLICTO_MAYOR</Chip>
-                      <Chip tone="slate">próximamente</Chip>
-                    </div>
+                    <Chip tone="gold">CONFLICTO_MAYOR</Chip>
                   </td>
                   <td className="px-3 py-2 text-slate">
-                    Un RIF aparece en macro-canales contradictorios; va a la Cola.
+                    Un RIF aparece en macro-canales contradictorios; se detecta y va a la Cola.
                   </td>
                 </tr>
               </tbody>
