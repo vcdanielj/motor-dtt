@@ -1,0 +1,193 @@
+import { test, expect, describe } from 'vitest'
+import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
+import { normalizeRif } from '@/ingest/normalize'
+
+const UTT = 'TRADE TRADICIONAL (UTT)'
+const MAYORISTAS = 'MAYORISTAS'
+
+describe('parseFechaOrden', () => {
+  test('Spanish/English 3-letter month + 2-digit year (Oct/25 -> 202510)', () => {
+    expect(parseFechaOrden('Oct/25')).toBe(202510)
+  })
+
+  test('Mar/26 -> 202603', () => {
+    expect(parseFechaOrden('Mar/26')).toBe(202603)
+  })
+
+  test('all-caps Spanish month with dash separator: DIC/24 -> 202412', () => {
+    expect(parseFechaOrden('DIC/24')).toBe(202412)
+  })
+
+  test('ISO-ish YYYY-MM: 2025-11 -> 202511', () => {
+    expect(parseFechaOrden('2025-11')).toBe(202511)
+  })
+
+  test('MM/YYYY is also accepted', () => {
+    expect(parseFechaOrden('11/2025')).toBe(202511)
+  })
+
+  test('lowercase dash separator: oct-25 -> 202510', () => {
+    expect(parseFechaOrden('oct-25')).toBe(202510)
+  })
+
+  test('garbage input -> null', () => {
+    expect(parseFechaOrden('garbage')).toBeNull()
+  })
+
+  test('null -> null', () => {
+    expect(parseFechaOrden(null)).toBeNull()
+  })
+
+  test('undefined -> null', () => {
+    expect(parseFechaOrden(undefined)).toBeNull()
+  })
+
+  test('empty string -> null', () => {
+    expect(parseFechaOrden('')).toBeNull()
+  })
+})
+
+describe('MaestroBuilder — D3 RECIENTE (más reciente wins when no manual)', () => {
+  test('BODEGA (202603) beats ABASTO (202510), same macro — one entry, zero conflictos', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-1', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510, razonSocial: 'Cliente Uno' })
+    b.observe({ rif: 'J-1', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202603 })
+
+    const { maestro, conflictos } = b.build()
+
+    expect(conflictos).toEqual([])
+    expect(maestro.size).toBe(1)
+    const entry = maestro.get(normalizeRif('J-1'))
+    expect(entry).toEqual({
+      rif: 'J-1',
+      razonSocial: 'Cliente Uno',
+      segmentoN3: 'BODEGA',
+      macroN1: UTT,
+      metodo: 'MAESTRO',
+      confianza: 'N3',
+      estadoHabitual: null,
+      fechaClasificacion: null,
+      reglaCanonica: 'RECIENTE',
+    })
+  })
+})
+
+describe('MaestroBuilder — D3 MANUAL wins over más reciente', () => {
+  test('ABASTO manual (202510) beats BODEGA exacto (202603)', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-2', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'MANUAL', fechaOrden: 202510 })
+    b.observe({ rif: 'J-2', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202603 })
+
+    const { maestro, conflictos } = b.build()
+
+    expect(conflictos).toEqual([])
+    const entry = maestro.get(normalizeRif('J-2'))
+    expect(entry?.segmentoN3).toBe('ABASTO')
+    expect(entry?.reglaCanonica).toBe('MANUAL')
+  })
+})
+
+describe('MaestroBuilder — D3 MODA tiebreak', () => {
+  test('same macro, tied (null) fechas, counts 5 vs 2 — highest count wins', () => {
+    const b = new MaestroBuilder()
+    for (let i = 0; i < 2; i++) {
+      b.observe({ rif: 'J-3', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: null })
+    }
+    for (let i = 0; i < 5; i++) {
+      b.observe({ rif: 'J-3', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: null })
+    }
+
+    const { maestro, conflictos } = b.build()
+
+    expect(conflictos).toEqual([])
+    const entry = maestro.get(normalizeRif('J-3'))
+    expect(entry?.segmentoN3).toBe('BODEGA')
+    expect(entry?.reglaCanonica).toBe('MODA')
+  })
+
+  test('equal counts and equal fechas fall back to alphabetical segmentoN3', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-3b', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+    b.observe({ rif: 'J-3b', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+
+    const { maestro } = b.build()
+    const entry = maestro.get(normalizeRif('J-3b'))
+    expect(entry?.segmentoN3).toBe('ABASTO')
+    expect(entry?.reglaCanonica).toBe('MODA')
+  })
+})
+
+describe('MaestroBuilder — CONFLICTO_MAYOR (cross-macro, not auto-assigned)', () => {
+  test('BODEGA (UTT) + MAYORISTA CON FUERZA DE VENTA (MAYORISTAS) → conflicto, no maestro entry', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-4', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+    b.observe({ rif: 'J-4', segmentoN3: 'MAYORISTA CON FUERZA DE VENTA', macroN1: MAYORISTAS, metodo: 'EXACTO', fechaOrden: 202603 })
+
+    const { maestro, conflictos } = b.build()
+
+    expect(maestro.has(normalizeRif('J-4'))).toBe(false)
+    expect(maestro.size).toBe(0)
+    expect(conflictos).toEqual([
+      {
+        rif: 'J-4',
+        macros: [MAYORISTAS, UTT].sort(),
+        segmentos: ['BODEGA', 'MAYORISTA CON FUERZA DE VENTA'].sort(),
+        registros: 2,
+      },
+    ])
+  })
+})
+
+describe('MaestroBuilder — RIF format convergence', () => {
+  test('J-500522657 and J500522657 accumulate into the same maestro key', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-500522657', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+    b.observe({ rif: 'J500522657', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202603 })
+
+    expect(b.size()).toBe(1)
+
+    const { maestro, conflictos } = b.build()
+    expect(conflictos).toEqual([])
+    expect(maestro.size).toBe(1)
+    const key = normalizeRif('J-500522657')
+    expect(key).toBe(normalizeRif('J500522657'))
+    const entry = maestro.get(key)
+    expect(entry?.segmentoN3).toBe('BODEGA')
+    // first-seen raw rif is preserved
+    expect(entry?.rif).toBe('J-500522657')
+  })
+})
+
+describe('MaestroBuilder — empty segment observations are ignored', () => {
+  test('an observation with segmentoN3 "" never creates a maestro entry', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-5', segmentoN3: '', macroN1: UTT, metodo: null, fechaOrden: null })
+
+    const { maestro, conflictos } = b.build()
+    expect(maestro.has(normalizeRif('J-5'))).toBe(false)
+    expect(maestro.size).toBe(0)
+    expect(conflictos).toEqual([])
+    expect(b.size()).toBe(0)
+  })
+
+  test('a null segmentoN3-like empty string mixed with a valid one still resolves normally', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-6', segmentoN3: '', macroN1: UTT, metodo: null, fechaOrden: null })
+    b.observe({ rif: 'J-6', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+
+    const { maestro } = b.build()
+    const entry = maestro.get(normalizeRif('J-6'))
+    expect(entry?.segmentoN3).toBe('ABASTO')
+  })
+})
+
+describe('MaestroBuilder — size()', () => {
+  test('counts distinct RIFs observed with at least one valid segment', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-7', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+    b.observe({ rif: 'J-7', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202603 })
+    b.observe({ rif: 'J-8', segmentoN3: 'ABASTO', macroN1: UTT, metodo: 'EXACTO', fechaOrden: 202510 })
+
+    expect(b.size()).toBe(2)
+  })
+})
