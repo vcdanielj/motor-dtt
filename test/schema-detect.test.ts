@@ -17,6 +17,14 @@ test('is accent- and case-insensitive on header aliases', () => {
   expect(m.estadoCrudo).toBe('edo.')
 })
 
+test('strips diacritics on accented headers', () => {
+  // Genuinely accented vowels — exercises the NFD diacritic-strip path.
+  const m = detectSchema(['Canal/Tipo de Cliénte', 'Estádo', 'Ciudád'])
+  expect(m.segmentoCrudo).toBe('Canal/Tipo de Cliénte')
+  expect(m.estadoCrudo).toBe('Estádo')
+  expect(m.ciudad).toBe('Ciudád')
+})
+
 test('records unmapped headers', () => {
   const m = detectSchema(['RIF', 'COLUMNA_RARA'])
   expect(m.unmapped).toContain('COLUMNA_RARA')
