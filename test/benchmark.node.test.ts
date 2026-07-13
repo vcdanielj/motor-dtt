@@ -18,6 +18,8 @@ import { normalizeText } from '@/ingest/normalize'
 import { buildIndex, resolveSegmento, type SegmentoContext, type SegmentoResult } from '@/pipeline/segmento'
 import { buildEstadoContext, resolveEstado } from '@/pipeline/estado'
 import type { ResolvedRow } from '@/pipeline/process-row'
+import { normalizeRif } from '@/ingest/normalize'
+import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import type { FlagRegistro, SchemaMap } from '@/contracts/row'
 import { MetricsAccumulator, scdcCrudoPct, scdcPostPct } from '@/pipeline/metrics'
 
@@ -62,6 +64,11 @@ describe.skipIf(!RUN)('benchmark: real Sell_out CSV through the resolution engin
       // Cache the segment resolution (the only fuzzy/slow path) by normalized crudo.
       const segCache = new Map<string, SegmentoResult>()
       let schemaDesc = ''
+      // Maestro (D3) recovery — build it during the pass, apply at the end.
+      const mBuilder = new MaestroBuilder()
+      const unresueltoPorRif = new Map<string, { count: number; ton: number }>()
+      let mesCol: string | null = null
+      let clienteCol: string | null = null
 
       const pickHeaders = (headers: string[]) => {
         const sm = detectSchema(headers)
@@ -71,7 +78,9 @@ describe.skipIf(!RUN)('benchmark: real Sell_out CSV through the resolution engin
           headers.find((h) => /distribuidor/i.test(h)) ??
           null
         tonCol = headers.find((h) => normalizeText(h) === 'TON') ?? null
-        schemaDesc = `rif=${sm.rif} · seg=${sm.segmentoCrudo} · estado=${sm.estadoCrudo} · ciudad=${sm.ciudad} · dist=${distCol} · ton=${tonCol}`
+        mesCol = headers.find((h) => normalizeText(h) === 'MES') ?? headers.find((h) => /fecha/i.test(h)) ?? null
+        clienteCol = headers.find((h) => normalizeText(h) === 'CLIENTE') ?? null
+        schemaDesc = `rif=${sm.rif} · seg=${sm.segmentoCrudo} · estado=${sm.estadoCrudo} · ciudad=${sm.ciudad} · dist=${distCol} · ton=${tonCol} · mes=${mesCol}`
       }
 
       await new Promise<void>((resolve, reject) => {
@@ -119,6 +128,24 @@ describe.skipIf(!RUN)('benchmark: real Sell_out CSV through the resolution engin
             if (rr.sugerenciaSegmento) sugerencias++
             metrics.add(distribuidor, rr, ton)
 
+            // Maestro: observe resolved rows; track unresolved-with-RIF for recovery.
+            const rifKey = normalizeRif(rif)
+            if (rr.metodoSegmento === 'EXACTO' || rr.metodoSegmento === 'FUZZY') {
+              mBuilder.observe({
+                rif,
+                segmentoN3: rr.segmentoN3 ?? '',
+                macroN1: rr.macroN1 ?? '',
+                metodo: rr.metodoSegmento,
+                fechaOrden: mesCol ? parseFechaOrden(rec[mesCol]) : null,
+                razonSocial: clienteCol ? rec[clienteCol] : null,
+              })
+            } else if (rr.flagRegistro === 'SIN_CLASIFICAR' && rifKey) {
+              const u = unresueltoPorRif.get(rifKey) ?? { count: 0, ton: 0 }
+              u.count++
+              u.ton += ton
+              unresueltoPorRif.set(rifKey, u)
+            }
+
             if (rr.flagRegistro === 'SIN_CLASIFICAR') {
               tonSinClasif += ton
               const key = segCrudo.trim() || '(vacío)'
@@ -136,6 +163,23 @@ describe.skipIf(!RUN)('benchmark: real Sell_out CSV through the resolution engin
       const dists = metrics.distribuidores()
       const topUnclass = [...unclassified.entries()].sort((a, b) => b[1].ton - a[1].ton).slice(0, 20)
 
+      // ── Maestro (D3): build + recover unresolved rows whose RIF is now known ──
+      const { maestro, conflictos } = mBuilder.build()
+      let recuperados = 0
+      let tonRecuperada = 0
+      for (const [rifKey, u] of unresueltoPorRif) {
+        if (maestro.has(rifKey)) {
+          recuperados += u.count
+          tonRecuperada += u.ton
+        }
+      }
+      const segTallyPost = {
+        MAESTRO: segTally.MAESTRO + recuperados,
+        EXACTO: segTally.EXACTO,
+        FUZZY: segTally.FUZZY,
+        SIN_CLASIFICAR: segTally.SIN_CLASIFICAR - recuperados,
+      }
+
       const report = [
         '',
         '════════════════ MOTOR DTT · BENCHMARK (datos reales) ════════════════',
@@ -150,10 +194,17 @@ describe.skipIf(!RUN)('benchmark: real Sell_out CSV through the resolution engin
         `  SIN_CLASIFICAR:  ${segTally.SIN_CLASIFICAR.toLocaleString('es-VE').padStart(9)}  (${pct(segTally.SIN_CLASIFICAR, rows)}%)`,
         `  Sugerencias a cola (80–91): ${sugerencias.toLocaleString('es-VE')}`,
         '',
-        `  Clasificación GLOBAL:                 ${pct(rows - segTally.SIN_CLASIFICAR, rows)}%`,
+        `  Clasificación GLOBAL (pass 1):        ${pct(rows - segTally.SIN_CLASIFICAR, rows)}%`,
         `  Filas con crudo presente:             ${crudoPresent.toLocaleString('es-VE')} (${pct(crudoPresent, rows)}%)`,
         `  Clasificación entre crudo-presente:   ${pct(rows - segTally.SIN_CLASIFICAR, crudoPresent)}%  ← comparable al ~92% del PRD`,
-        `  TON en SIN_CLASIFICAR:                ${tonSinClasif.toLocaleString('es-VE', { maximumFractionDigits: 0 })} (${pct(tonSinClasif, tonTotal)}% del volumen)`,
+        `  TON en SIN_CLASIFICAR (pass 1):       ${tonSinClasif.toLocaleString('es-VE', { maximumFractionDigits: 0 })} (${pct(tonSinClasif, tonTotal)}% del volumen)`,
+        '',
+        '── MAESTRO (D3 · recuperación por RIF — pass 2) ──',
+        `  Clientes en el maestro:  ${maestro.size.toLocaleString('es-VE')}   ·   Conflictos mayores (a cola): ${conflictos.length.toLocaleString('es-VE')}`,
+        `  Filas recuperadas por RIF: ${recuperados.toLocaleString('es-VE')}  (+${pct(recuperados, rows)} pts)   ·   TON recuperada: ${tonRecuperada.toLocaleString('es-VE', { maximumFractionDigits: 0 })}`,
+        `  MAESTRO post:     ${segTallyPost.MAESTRO.toLocaleString('es-VE').padStart(9)}  ·  SIN_CLASIFICAR post: ${segTallyPost.SIN_CLASIFICAR.toLocaleString('es-VE')}`,
+        `  ★ Clasificación GLOBAL post-maestro:  ${pct(rows - segTallyPost.SIN_CLASIFICAR, rows)}%   (era ${pct(rows - segTally.SIN_CLASIFICAR, rows)}%)`,
+        `  TON en SIN_CLASIFICAR post-maestro:   ${(tonSinClasif - tonRecuperada).toLocaleString('es-VE', { maximumFractionDigits: 0 })} (${pct(tonSinClasif - tonRecuperada, tonTotal)}% del volumen)`,
         '',
         '── ESTADO (cascada · sin recuperación por RIF) ──',
         `  EXACTO (catálogo): ${estTally.EXACTO.toLocaleString('es-VE').padStart(9)}  (${pct(estTally.EXACTO, rows)}%)`,
