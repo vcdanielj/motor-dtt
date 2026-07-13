@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { adapters } from '@/adapters'
-import { getLearnedDiccionario, getManualMaestro } from '@/storage/db'
+import { getLearnedDiccionario, getManualMaestro, putLearnedDiccionario, putManualMaestro } from '@/storage/db'
 import { loadRunConfig } from '@/storage/run-config'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
@@ -48,6 +48,7 @@ interface StoreState {
   startPipeline: (file: File) => Promise<void>
   exportBase: () => Promise<void>
   refreshLearned: () => Promise<void>
+  resolveColaItem: (id: string, segmentoN3: string) => Promise<void>
 }
 
 // Sprint 2: no config UI yet for the diccionario version — a fixed tag, same spirit as the
@@ -156,6 +157,49 @@ export const useStore = create<StoreState>((set, get) => ({
   refreshLearned: async () => {
     const [diccionario, maestro] = await Promise.all([getLearnedDiccionario(), getManualMaestro()])
     set({ learned: { diccionario: diccionario.length, maestro: maestro.length } })
+  },
+  // The analyst classifies a pending cola item (Sprint 2 · C2): CONFLICTO_MAYOR items carry a RIF
+  // in valorCrudo and get a manual maestro override; the other tipos carry a raw segment string
+  // and get a learned diccionario entry. Both feed the NEXT corrida via loadRunConfig. Never
+  // throws to the UI — a storage hiccup is swallowed (putters already no-op without IndexedDB).
+  resolveColaItem: async (id, segmentoN3) => {
+    const { cola, seeds } = get()
+    const item = cola.find((c) => c.id === id)
+    if (!item) return
+    const segmento = seeds.segmentos.find((s) => s.n3 === segmentoN3)
+    if (!segmento) return // shouldn't happen — options come from the catalog
+
+    try {
+      if (item.tipo === 'CONFLICTO_MAYOR') {
+        await putManualMaestro({
+          rif: item.valorCrudo,
+          razonSocial: null,
+          segmentoN3,
+          macroN1: segmento.macroN1,
+          metodo: 'MANUAL',
+          confianza: 'N3',
+          estadoHabitual: null,
+          fechaClasificacion: null,
+          reglaCanonica: 'MANUAL',
+        })
+      } else {
+        await putLearnedDiccionario({
+          variante: item.valorCrudo,
+          segmentoN3,
+          macroN1: segmento.macroN1,
+          codigo: segmento.codigo,
+          metodo: 'EXACTO',
+          activa: true,
+        })
+      }
+      await get().refreshLearned()
+    } catch {
+      // storage hiccup — keep the UI usable, resolution below still reflects the analyst's intent
+    }
+
+    set((s) => ({
+      cola: s.cola.map((c) => (c.id === id ? { ...c, resolucion: segmentoN3 } : c)),
+    }))
   },
 }))
 
