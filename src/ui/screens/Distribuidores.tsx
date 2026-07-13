@@ -34,7 +34,7 @@ export default function Distribuidores() {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setSortKey(k)
-      setSortDir(k === 'nombre' ? 'asc' : 'asc')
+      setSortDir('asc')
     }
   }
 

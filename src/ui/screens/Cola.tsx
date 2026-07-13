@@ -24,8 +24,10 @@ export default function Cola() {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [toast, setToast] = useState<string | null>(null)
 
-  const handleResolve = (valorCrudo: string) => {
-    setToast(`«${valorCrudo}» guardado localmente — vista previa, la persistencia llega en Sprint 5.`)
+  const handleResolve = (itemId: string, fallback: string) => {
+    const resolucion = drafts[itemId] ?? fallback ?? ''
+    const label = resolucion.trim() ? `«${resolucion}»` : '(sin resolución)'
+    setToast(`${label} guardado localmente — vista previa, la persistencia llega en Sprint 5.`)
     window.setTimeout(() => setToast(null), 3200)
   }
 
@@ -78,7 +80,7 @@ export default function Cola() {
               />
               <button
                 type="button"
-                onClick={() => handleResolve(item.valorCrudo)}
+                onClick={() => handleResolve(item.id, item.resolucion ?? '')}
                 className="whitespace-nowrap rounded bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy-deep"
               >
                 Resolver (local)

@@ -1,8 +1,8 @@
 {
   "name": "dtt-motor",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Motor de Estandarización DTT — SPA local-first",
+  "private": true,
   "directories": {
     "doc": "docs"
   },
@@ -27,8 +27,6 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
-    "@fontsource/ibm-plex-mono": "^5.2.7",
-    "@fontsource/ibm-plex-sans": "^5.2.8",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.1",

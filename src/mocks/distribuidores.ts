@@ -1,5 +1,3 @@
-import type { ConfianzaSegmento } from '@/contracts/row'
-
 export interface DistribuidorRow {
   id: string
   nombre: string
@@ -15,5 +13,3 @@ export const MOCK_DISTRIBUIDORES: DistribuidorRow[] = [
   { id: 'd2', nombre: 'COMERCIALIZADORA 3B GROUP', scdcCrudo: 44, scdcPost: 81, registros: 11842, ton: 96.4 },
   { id: 'd3', nombre: 'MAYORISTA EXITOSO', scdcCrudo: 55, scdcPost: 88, registros: 8905, ton: 71.0 },
 ]
-
-export type { ConfianzaSegmento }

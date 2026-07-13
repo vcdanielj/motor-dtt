@@ -38,10 +38,12 @@ export const useStore = create<StoreState>((set) => ({
   ingest: { phase: 'idle', rows: 0, distributors: 0, fileName: null, summary: null, error: null },
   startIngest: async (file) => {
     set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
+    const startedAt = Date.now()
     try {
-      const summary = await adapters.ingest(file, (e: ProgressEvent) => {
+      const rawSummary = await adapters.ingest(file, (e: ProgressEvent) => {
         if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors } }))
       })
+      const summary = { ...rawSummary, startedAt, finishedAt: Date.now() }
       set((s) => ({ ingest: { ...s.ingest, phase: 'done', rows: summary.totalRows, distributors: summary.distributors, summary } }))
     } catch (err) {
       set((s) => ({ ingest: { ...s.ingest, phase: 'error', error: (err as Error).message } }))

@@ -23,10 +23,10 @@ export default function Dashboard() {
           <Metric label="Registros procesados" value={dashboard.totalFilas} />
         </Card>
         <Card>
-          <Metric label="Macro-canal N1 resuelto" value={dashboard.clasificacionN3} />
+          <Metric label="Clasificación N3" value={dashboard.clasificacionN3} />
         </Card>
         <Card>
-          <Metric label="Segmento N3 exacto" value={dashboard.coberturaN3} />
+          <Metric label="Cobertura N3" value={dashboard.coberturaN3} />
         </Card>
         <Card>
           <Metric label="Estado válido" value={dashboard.estadoValido} />
