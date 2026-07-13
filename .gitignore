@@ -5,3 +5,9 @@ dist/
 output/
 .superpowers/
 *.tsbuildinfo
+
+# Real sell-out data — NEVER commit (320MB, 740K rows; local-only per RNF5)
+Sell out*.csv
+*.csv
+!test/**/*.csv
+data/
