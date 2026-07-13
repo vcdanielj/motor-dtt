@@ -15,6 +15,10 @@ const RESULT: PipelineRunResult = {
   tonSinClasificar: 50,
   distribuidores: [{ id: 'd0', nombre: 'EXCELSIOR RK', scdcCrudo: 31, scdcPost: 74, registros: 100, ton: 10 }],
   cola: [],
+  maestro: [],
+  maestroTotal: 0,
+  conflictos: 0,
+  recuperadosMaestro: 0,
 }
 
 class FakePipelineWorker {

@@ -2,15 +2,18 @@
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import { detectSchema } from '@/ingest/schema-detect'
-import { normalizeText } from '@/ingest/normalize'
+import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import { SEEDS } from '@/seeds'
 import { buildIndex, resolveSegmento, type SegmentoContext, type SegmentoResult } from '@/pipeline/segmento'
 import { buildEstadoContext, resolveEstado } from '@/pipeline/estado'
-import { MetricsAccumulator, scdcCrudoPct, scdcPostPct } from '@/pipeline/metrics'
-import { createColaAccumulator } from '@/pipeline/cola'
+import { MetricsAccumulator, scdcCrudoPct } from '@/pipeline/metrics'
+import { createColaAccumulator, stableId } from '@/pipeline/cola'
+import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
+import { applyMaestroRecovery, type UnresueltoTally } from '@/pipeline/recovery'
 import type { ResolvedRow } from '@/pipeline/process-row'
 import type { ProgressEvent, IngestSummary, FileKind, MethodTally, PipelineRunResult } from '@/contracts/pipeline'
 import type { DistribuidorRow } from '@/contracts/dist'
+import type { ColaItem } from '@/contracts/cola'
 import type { FlagRegistro, SchemaMap } from '@/contracts/row'
 
 const post = (e: ProgressEvent) => (self as unknown as Worker).postMessage(e)
@@ -131,11 +134,18 @@ async function runPipeline(file: File) {
   // Fuzzy matching is the only slow path — memoize segment resolution by normalizeText(crudo).
   const segCache = new Map<string, SegmentoResult>()
   const segmento: MethodTally = { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 }
+  // Maestro (M2): built during the same pass from resolved rows, then used at the end to
+  // recover rows whose segment never resolved but whose RIF is known — see applyMaestroRecovery.
+  const maestroBuilder = new MaestroBuilder()
+  const unresueltoPorRif = new Map<string, UnresueltoTally>()
+  const unresueltoDistRif = new Map<string, Map<string, number>>()
 
   let schema: SchemaMap | null = null
   let badSchema = false
   let distCol: string | null = null
   let tonCol: string | null = null
+  let mesCol: string | null = null
+  let clienteCol: string | null = null
   let rows = 0
   let crudoPresent = 0
   let tonTotal = 0
@@ -152,6 +162,11 @@ async function runPipeline(file: File) {
       headers.find((h) => /distribuidor/i.test(h)) ??
       null
     tonCol = headers.find((h) => normalizeText(h) === 'TON') ?? null
+    mesCol =
+      headers.find((h) => normalizeText(h) === 'MES') ??
+      headers.find((h) => normalizeText(h).includes('FECHA')) ??
+      null
+    clienteCol = headers.find((h) => normalizeText(h) === 'CLIENTE') ?? null
   }
 
   const onRow = (rec: Record<string, string>) => {
@@ -193,6 +208,31 @@ async function runPipeline(file: File) {
     segmento[(resolved.metodoSegmento ?? 'SIN_CLASIFICAR') as keyof MethodTally]++
     metrics.add(distribuidor, resolved, ton)
     cola.addRow(segCrudo, resolved, ton)
+
+    // Maestro observation + unresolved-with-RIF tracking (M2).
+    if (resolved.metodoSegmento === 'EXACTO' || resolved.metodoSegmento === 'FUZZY') {
+      maestroBuilder.observe({
+        rif,
+        segmentoN3: resolved.segmentoN3 ?? '',
+        macroN1: resolved.macroN1 ?? '',
+        metodo: resolved.metodoSegmento,
+        fechaOrden: mesCol ? parseFechaOrden(rec[mesCol]) : null,
+        razonSocial: clienteCol ? rec[clienteCol] : null,
+      })
+    } else if (flagRegistro === 'SIN_CLASIFICAR') {
+      const rifKey = normalizeRif(rif)
+      if (rifKey !== '') {
+        const g = unresueltoPorRif.get(rifKey)
+        const safeTon = Number.isFinite(ton) ? ton : 0
+        if (g) { g.count++; g.ton += safeTon }
+        else unresueltoPorRif.set(rifKey, { count: 1, ton: safeTon })
+
+        let distMap = unresueltoDistRif.get(distribuidor)
+        if (!distMap) { distMap = new Map(); unresueltoDistRif.set(distribuidor, distMap) }
+        distMap.set(rifKey, (distMap.get(rifKey) ?? 0) + 1)
+      }
+    }
+
     if (rows % 5000 === 0) bump()
   }
 
@@ -242,25 +282,70 @@ async function runPipeline(file: File) {
   bump()
 
   const totals = metrics.totals()
-  const distribuidores: DistribuidorRow[] = metrics.distribuidores().map((d, i) => ({
-    id: `d${i}`,
-    nombre: d.nombre,
-    scdcCrudo: scdcCrudoPct(d),
-    scdcPost: scdcPostPct(d),
-    registros: d.registros,
-    ton: d.ton,
+
+  // ── Maestro (M2): build the canonical client segments from this pass's resolved rows, then
+  // use them to recover SIN_CLASIFICAR rows whose RIF is now known — single pass, no re-read. ──
+  const { maestro, conflictos } = maestroBuilder.build()
+  const recovery = applyMaestroRecovery({
+    segmento,
+    tonSinClasificar,
+    unresueltoPorRif,
+    unresueltoDistRif,
+    maestro,
+  })
+
+  const distribuidores: DistribuidorRow[] = metrics.distribuidores().map((d, i) => {
+    // Per-distributor recovery only ever raises the post-cascade share (scdcPost); scdcCrudo
+    // (from exactoCrudo, D5) comes straight from the untouched DistribuidorMetric — the
+    // distributor's raw submission never changes because of a maestro recovery.
+    const recuperadosDist = recovery.recuperadosPorDist.get(d.nombre) ?? 0
+    const resueltoPost = Math.min(d.resueltoPost + recuperadosDist, d.registros)
+    return {
+      id: `d${i}`,
+      nombre: d.nombre,
+      scdcCrudo: scdcCrudoPct(d),
+      scdcPost: pct1(resueltoPost, d.registros),
+      registros: d.registros,
+      ton: d.ton,
+    }
+  })
+
+  // Maestro entries for the view: sorted by rif for determinism, capped to keep the postMessage
+  // payload small. maestroTotal carries the true distinct-client count.
+  const maestroEntries = [...maestro.values()].sort((a, b) => a.rif.localeCompare(b.rif))
+
+  // CONFLICTO_MAYOR → cola: cross-macro RIFs never get a maestro entry, so they need a review
+  // queue item of their own (built from the maestro pass, not from row-crudo grouping).
+  const conflictoItems: ColaItem[] = conflictos.map((c) => ({
+    id: stableId('CONFLICTO_MAYOR', c.rif),
+    tipo: 'CONFLICTO_MAYOR',
+    valorCrudo: c.rif,
+    registrosAfectados: c.registros,
+    tonAfectadas: 0,
+    sugerenciaFuzzy: null,
+    resolucion: null,
   }))
+  const colaMerged = [...cola.build(200), ...conflictoItems]
+    .sort((a, b) => b.tonAfectadas - a.tonAfectadas)
+    .slice(0, 200)
 
   const result: PipelineRunResult = {
     summary,
-    segmento,
-    clasificacionPct: pct1(rows - segmento.SIN_CLASIFICAR, rows),
-    clasificacionCrudoPct: pct1(rows - segmento.SIN_CLASIFICAR, crudoPresent),
+    segmento: recovery.segmento,
+    clasificacionPct: pct1(rows - recovery.segmento.SIN_CLASIFICAR, rows),
+    // Capped defensively: recovered rows with no crudo at all raise the numerator (now-classified
+    // rows) without raising crudoPresent (rows that HAD a crudo value), which could otherwise
+    // push this ratio past 100%.
+    clasificacionCrudoPct: Math.min(100, pct1(rows - recovery.segmento.SIN_CLASIFICAR, crudoPresent)),
     estadoValidoPct: pct1(totals.estadoValido, rows),
     tonTotal,
-    tonSinClasificar,
+    tonSinClasificar: recovery.tonSinClasificar,
     distribuidores,
-    cola: cola.build(200),
+    cola: colaMerged,
+    maestro: maestroEntries.slice(0, 500),
+    maestroTotal: maestro.size,
+    conflictos: conflictos.length,
+    recuperadosMaestro: recovery.recuperados,
   }
   post({ type: 'result', result })
 }

@@ -20,8 +20,9 @@ function guardTon(ton: number): number {
 }
 
 // Stable slug from tipo + normalized crudo — deterministic, no randomness, so the same
-// input file always produces the same cola ids across runs.
-function stableId(tipo: ColaTipo, valorCrudo: string): string {
+// input file always produces the same cola ids across runs. Exported so the worker can mint
+// matching ids for CONFLICTO_MAYOR items (built from the maestro, not from row grouping here).
+export function stableId(tipo: ColaTipo, valorCrudo: string): string {
   const base = valorCrudo
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

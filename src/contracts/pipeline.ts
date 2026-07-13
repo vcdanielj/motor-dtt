@@ -32,6 +32,10 @@ export interface PipelineRunResult {
   tonSinClasificar: number
   distribuidores: DistribuidorRow[]  // SAME shape as mocks/distribuidores.ts DistribuidorRow
   cola: ColaItem[]
+  maestro: import('./maestro').MaestroEntry[]   // for the Maestro view (capped to 500, see worker)
+  maestroTotal: number                          // total distinct clients classified in the maestro
+  conflictos: number                            // count of CONFLICTO_MAYOR (also surfaced in cola)
+  recuperadosMaestro: number                    // rows recovered by RIF this run
 }
 
 export type ProgressEvent =

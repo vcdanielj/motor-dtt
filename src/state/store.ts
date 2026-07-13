@@ -70,6 +70,7 @@ export const useStore = create<StoreState>((set) => ({
         ingest: { phase: 'done', rows: summary.totalRows, distributors: summary.distributors, fileName: file.name, summary, error: null },
         distribuidores: result.distribuidores,
         cola: result.cola,
+        maestro: result.maestro,
         dashboard: {
           totalFilas: summary.totalRows.toLocaleString('es-VE'),
           estadoValido: pctEs(result.estadoValidoPct),

@@ -42,6 +42,10 @@ test('done state shows real classification once a pipeline run has completed', (
       tonSinClasificar: 5,
       distribuidores: [],
       cola: [],
+      maestro: [],
+      maestroTotal: 0,
+      conflictos: 0,
+      recuperadosMaestro: 0,
     },
   }))
   render(<Corrida />)

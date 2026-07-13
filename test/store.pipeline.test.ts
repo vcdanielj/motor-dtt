@@ -25,6 +25,22 @@ const RESULT: PipelineRunResult = {
       resolucion: null,
     },
   ],
+  maestro: [
+    {
+      rif: 'J-1',
+      razonSocial: 'CLIENTE UNO',
+      segmentoN3: 'BODEGA',
+      macroN1: 'TRADE TRADICIONAL (UTT)',
+      metodo: 'MAESTRO',
+      confianza: 'N3',
+      estadoHabitual: null,
+      fechaClasificacion: null,
+      reglaCanonica: 'RECIENTE',
+    },
+  ],
+  maestroTotal: 1,
+  conflictos: 0,
+  recuperadosMaestro: 12,
 }
 
 class FakeResultWorker {
@@ -61,6 +77,7 @@ test('startPipeline repopulates dashboard/distribuidores/cola with real results'
   expect(s.ingest.rows).toBe(5000)
   expect(s.distribuidores).toEqual(RESULT.distribuidores)
   expect(s.cola).toEqual(RESULT.cola)
+  expect(s.maestro).toEqual(RESULT.maestro)
   expect(s.dashboard).toEqual({
     totalFilas: '5.000',
     estadoValido: '98,1%',
@@ -68,6 +85,8 @@ test('startPipeline repopulates dashboard/distribuidores/cola with real results'
     clasificacionN3: '90%',
   })
   expect(s.runResult?.distribuidores).toEqual(RESULT.distribuidores)
+  expect(s.runResult?.maestroTotal).toBe(1)
+  expect(s.runResult?.recuperadosMaestro).toBe(12)
 })
 
 test('startPipeline sets ingest to error when the worker emits an error event', async () => {
