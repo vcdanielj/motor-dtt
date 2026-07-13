@@ -13,6 +13,10 @@ function kindOf(name: string): FileKind | null {
   return null
 }
 
+// A schema is usable if at least one core field (RIF / segment / state) was mapped.
+const schemaIsUsable = (s: import('@/contracts/row').SchemaMap) =>
+  s.rif !== null || s.segmentoCrudo !== null || s.estadoCrudo !== null
+
 self.onmessage = async (ev: MessageEvent<{ file: File }>) => {
   const { file } = ev.data
   const kind = kindOf(file.name)
@@ -20,10 +24,13 @@ self.onmessage = async (ev: MessageEvent<{ file: File }>) => {
   post({ type: 'start', fileName: file.name, fileKind: kind, bytes: file.size })
 
   let schema: import('@/contracts/row').SchemaMap | null = null
+  let badSchema = false
   let rows = 0
   const owners = new Set<string>()
   const started = performance.now()
-  const bump = () => post({ type: 'progress', rows, distributors: owners.size, bytesRead: file.size })
+  // Incremental for CSV via PapaParse's cursor; XLSX is fully buffered (no cursor) so it stays at file.size.
+  let bytesRead = file.size
+  const bump = () => post({ type: 'progress', rows, distributors: owners.size, bytesRead })
 
   const onHeaders = (headers: string[]) => { schema = detectSchema(headers) }
   const onRow = (rec: Record<string, string>) => {
@@ -34,11 +41,17 @@ self.onmessage = async (ev: MessageEvent<{ file: File }>) => {
 
   try {
     if (kind === 'csv') {
+      bytesRead = 0
       await new Promise<void>((resolve, reject) => {
         Papa.parse<Record<string, string>>(file, {
           header: true, skipEmptyLines: true, worker: false,
-          step: (res) => {
-            if (!schema) onHeaders(Object.keys(res.data))
+          step: (res, parser) => {
+            if (!schema) {
+              // Prefer PapaParse's authoritative field list; fall back to first row's keys.
+              onHeaders(res.meta.fields ?? Object.keys(res.data))
+              if (schema && !schemaIsUsable(schema)) { badSchema = true; parser.abort(); return }
+            }
+            if (typeof res.meta.cursor === 'number') bytesRead = res.meta.cursor
             onRow(res.data)
           },
           complete: () => resolve(),
@@ -50,13 +63,17 @@ self.onmessage = async (ev: MessageEvent<{ file: File }>) => {
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const json = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
-      if (json.length) onHeaders(Object.keys(json[0]))
-      for (const rec of json) onRow(rec)
+      if (json.length) {
+        onHeaders(Object.keys(json[0]))
+        if (schema && !schemaIsUsable(schema)) badSchema = true
+      }
+      if (!badSchema) for (const rec of json) onRow(rec)
     }
   } catch (err) {
     return post({ type: 'error', code: 'PARSE_ERROR', message: (err as Error).message })
   }
 
+  if (badSchema) return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento y estado' })
   if (rows === 0 || !schema) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados' })
   const finished = performance.now()
   const summary: IngestSummary = {
@@ -64,6 +81,7 @@ self.onmessage = async (ev: MessageEvent<{ file: File }>) => {
     bytes: file.size, schema, headerRowCount: 1,
     startedAt: 0, finishedAt: 0, durationMs: Math.round(finished - started),
   }
+  bytesRead = file.size
   bump()
   post({ type: 'done', summary })
 }
