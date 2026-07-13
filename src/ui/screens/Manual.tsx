@@ -59,7 +59,9 @@ const CALLOUT_TONE: Record<Tone, string> = {
 function Callout({ tone, icon, title, children }: { tone: Tone; icon: string; title: string; children: ReactNode }) {
   return (
     <div className={`mt-4 flex max-w-[68ch] gap-3 rounded-lg border px-4 py-3 ${CALLOUT_TONE[tone]}`}>
-      <span className="mt-0.5 shrink-0 font-mono text-sm font-bold">{icon}</span>
+      <span aria-hidden="true" className="mt-0.5 shrink-0 font-mono text-sm font-bold">
+        {icon}
+      </span>
       <div>
         <h4 className="text-[13px] font-bold text-ink">{title}</h4>
         <p className="mt-1 text-xs leading-relaxed text-slate">{children}</p>
@@ -139,7 +141,9 @@ function CascadeArrow({ indent, children }: { indent?: boolean; children: ReactN
 function ScreenCard({ icon, title, children }: { icon: string; title: string; children: ReactNode }) {
   return (
     <Card className="flex gap-3">
-      <span className="font-mono text-lg text-red">{icon}</span>
+      <span aria-hidden="true" className="font-mono text-lg text-red">
+        {icon}
+      </span>
       <div>
         <h3 className="text-sm font-bold text-navy">{title}</h3>
         <p className="mt-1 text-xs leading-relaxed text-slate">{children}</p>
@@ -151,7 +155,9 @@ function ScreenCard({ icon, title, children }: { icon: string; title: string; ch
 function RequirementCard({ icon, title, children }: { icon: string; title: string; children: ReactNode }) {
   return (
     <Card className="flex gap-3">
-      <span className="font-mono text-lg text-navy">{icon}</span>
+      <span aria-hidden="true" className="font-mono text-lg text-navy">
+        {icon}
+      </span>
       <div>
         <h3 className="text-sm font-bold text-ink">{title}</h3>
         <p className="mt-1 text-xs leading-relaxed text-slate">{children}</p>
