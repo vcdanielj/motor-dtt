@@ -9,6 +9,8 @@ const ITEMS: { key: ViewKey; label: string }[] = [
   { key: 'config', label: 'Configuración' },
 ]
 
+const HELP_ITEM: { key: ViewKey; label: string } = { key: 'manual', label: 'Manual' }
+
 export default function Nav() {
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
@@ -33,6 +35,18 @@ export default function Nav() {
           )
         })}
       </ul>
+      <div className="mt-auto border-t border-line/20 pt-2">
+        <button
+          type="button"
+          data-testid={`nav-${HELP_ITEM.key}`}
+          onClick={() => setView(HELP_ITEM.key)}
+          className={`w-full text-left px-4 py-3 font-sans ${
+            view === HELP_ITEM.key ? 'bg-red text-panel' : 'text-panel/80 hover:bg-navy-deep'
+          }`}
+        >
+          {HELP_ITEM.label}
+        </button>
+      </div>
     </nav>
   )
 }

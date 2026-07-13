@@ -8,6 +8,7 @@ import Distribuidores from '@/ui/screens/Distribuidores'
 import Cola from '@/ui/screens/Cola'
 import Maestro from '@/ui/screens/Maestro'
 import Config from '@/ui/screens/Config'
+import Manual from '@/ui/screens/Manual'
 
 const SCREENS = {
   dashboard: Dashboard,
@@ -16,6 +17,7 @@ const SCREENS = {
   cola: Cola,
   maestro: Maestro,
   config: Config,
+  manual: Manual,
 }
 
 export default function AppShell() {

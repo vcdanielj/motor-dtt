@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { adapters } from '@/adapters'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
-export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'config'
+export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'config' | 'manual'
 
 interface IngestState {
   phase: 'idle' | 'running' | 'done' | 'error'
