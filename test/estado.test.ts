@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'vitest'
 import { SEEDS } from '@/seeds'
 import { buildEstadoContext, resolveEstado, isProhibitedEstado, type EstadoContext } from '@/pipeline/estado'
-import { normalizeText } from '@/ingest/normalize'
+import { normalizeRif } from '@/ingest/normalize'
 
 function makeCtx(): EstadoContext {
   return buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado, new Map([['J-9', 'MERIDA']]))
@@ -92,13 +92,23 @@ describe('buildEstadoContext', () => {
     expect(ctx.ciudadEstado.get('MARACAIBO')).toBe('ZULIA')
   })
 
-  test('carries through the provided estadoByRif map, keyed by normalizeText(rif)', () => {
+  test('carries through the provided estadoByRif map, keyed by normalizeRif(rif)', () => {
     const ctx = makeCtx()
-    expect(ctx.estadoByRif.get(normalizeText('J-9'))).toBe('MERIDA')
+    expect(ctx.estadoByRif.get(normalizeRif('J-9'))).toBe('MERIDA')
   })
 
   test('defaults estadoByRif to an empty map when omitted', () => {
     const ctx = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado)
     expect(ctx.estadoByRif.size).toBe(0)
+  })
+})
+
+describe('resolveEstado — normalizeRif key robustness', () => {
+  test('two raw RIF formats for the same estadoByRif entry both resolve to it', () => {
+    const ctx = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado, new Map([['J-500522657', 'MERIDA']]))
+    const withDashes = resolveEstado({ rif: 'J-500522657', ciudad: null, estadoCrudo: null }, ctx)
+    const bare = resolveEstado({ rif: 'J500522657', ciudad: null, estadoCrudo: null }, ctx)
+    expect(withDashes).toEqual({ estadoStd: 'MERIDA', metodo: 'RIF', flag: 'OK' })
+    expect(bare).toEqual({ estadoStd: 'MERIDA', metodo: 'RIF', flag: 'OK' })
   })
 })

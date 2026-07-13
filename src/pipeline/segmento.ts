@@ -1,4 +1,4 @@
-import { normalizeText } from '@/ingest/normalize'
+import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import { bestMatch } from './fuzzy'
 import type { MetodoSegmento, ConfianzaSegmento, FlagRegistro } from '@/contracts/row'
 import type { MaestroEntry } from '@/contracts/maestro'
@@ -21,7 +21,7 @@ export interface DiccionarioIndex {
 
 export interface SegmentoContext {
   index: DiccionarioIndex
-  maestro: Map<string, MaestroEntry>      // key = normalizeText(rif)
+  maestro: Map<string, MaestroEntry>      // key = normalizeRif(rif)
   fuzzyThreshold: number                  // default 92 (assign)
   fuzzySuggestFloor: number               // default 80 (suggestion)
 }
@@ -42,7 +42,7 @@ export function buildIndex(diccionario: DiccionarioEntry[]): DiccionarioIndex {
 export function buildMaestro(entries: MaestroEntry[]): Map<string, MaestroEntry> {
   const map = new Map<string, MaestroEntry>()
   for (const entry of entries) {
-    const key = normalizeText(entry.rif ?? '')
+    const key = normalizeRif(entry.rif ?? '')
     if (key === '') continue
     map.set(key, entry)
   }
@@ -67,7 +67,7 @@ export function resolveSegmento(
   ctx: SegmentoContext,
 ): SegmentoResult {
   // 1. MAESTRO — wins even without a crudo.
-  const rifKey = normalizeText(input.rif ?? '')
+  const rifKey = normalizeRif(input.rif ?? '')
   if (rifKey !== '') {
     const maestroEntry = ctx.maestro.get(rifKey)
     if (maestroEntry) {

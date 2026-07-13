@@ -118,6 +118,30 @@ describe('resolveSegmento — MAESTRO precedence', () => {
   })
 })
 
+describe('resolveSegmento — normalizeRif key robustness', () => {
+  test('two raw RIF formats for the same maestro entry both resolve to it', () => {
+    const maestroEntries: MaestroEntry[] = [{
+      rif: 'J-500522657',
+      razonSocial: 'Cliente RIF Robusto',
+      segmentoN3: 'FARMACIA',
+      macroN1: 'FARMACIAS',
+      metodo: 'MANUAL',
+      confianza: 'N3',
+      estadoHabitual: null,
+      fechaClasificacion: null,
+      reglaCanonica: 'MANUAL',
+    }]
+    const ctx = makeCtx(maestroEntries)
+    const withDashes = resolveSegmento({ rif: 'J-500522657', crudo: null }, ctx)
+    const bare = resolveSegmento({ rif: 'J500522657', crudo: null }, ctx)
+    expect(withDashes.metodo).toBe('MAESTRO')
+    expect(bare.metodo).toBe('MAESTRO')
+    expect(withDashes.segmentoN3).toBe('FARMACIA')
+    expect(bare.segmentoN3).toBe('FARMACIA')
+    expect(withDashes).toEqual(bare)
+  })
+})
+
 describe('resolveSegmento — FUZZY (>=92)', () => {
   // Empirically verified: normalizeText('Supermercado Grandes') === 'SUPERMERCADO GRANDES',
   // which is NOT an exact dictionary key. bestMatch(key, ctx.index.keys) scores it 95

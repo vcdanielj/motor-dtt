@@ -1,4 +1,4 @@
-import { normalizeText } from '@/ingest/normalize'
+import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import type { MetodoEstado, FlagRegistro } from '@/contracts/row'
 
 export interface EstadoResult {
@@ -9,7 +9,7 @@ export interface EstadoResult {
 
 export interface EstadoContext {
   catalogo: Set<string>                // normalized 24 estados
-  estadoByRif: Map<string, string>     // normalizeText(rif) -> canonical estado (from history; may be empty for now)
+  estadoByRif: Map<string, string>     // normalizeRif(rif) -> canonical estado (from history; may be empty for now)
   ciudadEstado: Map<string, string>    // normalizeText(ciudad) -> canonical estado
 }
 
@@ -40,7 +40,7 @@ export function buildEstadoContext(
 
   const estadoByRifMap = new Map<string, string>()
   for (const [rif, estado] of estadoByRif) {
-    const key = normalizeText(rif)
+    const key = normalizeRif(rif)
     if (key === '') continue
     estadoByRifMap.set(key, estado)
   }
@@ -64,7 +64,7 @@ export function resolveEstado(
   }
 
   // 2. RIF — beats CIUDAD when they disagree (R4); enforced by cascade order.
-  const rifKey = normalizeText(input.rif ?? '')
+  const rifKey = normalizeRif(input.rif ?? '')
   if (rifKey !== '') {
     const rifEstado = ctx.estadoByRif.get(rifKey)
     if (rifEstado) {
