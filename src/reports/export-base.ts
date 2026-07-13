@@ -26,7 +26,10 @@ export interface ExportExtraCols {
 
 export function detectExportExtraCols(headers: string[]): ExportExtraCols {
   return {
-    mesCol: headers.find((h) => normalizeText(h) === 'MES') ?? headers.find((h) => /fecha/i.test(h)) ?? null,
+    mesCol:
+      headers.find((h) => normalizeText(h) === 'MES') ??
+      headers.find((h) => normalizeText(h).includes('FECHA')) ??
+      null,
     clienteCol: headers.find((h) => normalizeText(h) === 'CLIENTE') ?? null,
   }
 }

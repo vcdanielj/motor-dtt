@@ -114,8 +114,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   // On-demand export (Sprint 2 · X1): re-streams the run's file through the worker's
-  // export mode WITH the run's maestro, then saves the resulting CSV Blob. No-ops quietly
-  // if there's no completed run yet to reuse.
+  // export mode, which builds the FULL maestro itself (two-pass, uncapped), then saves the
+  // resulting CSV Blob. No-ops quietly if there's no completed run yet to reuse.
   exportBase: async () => {
     const { lastFile, runResult, runId, versionDiccionario } = get()
     if (!lastFile || !runResult || !runId) return
