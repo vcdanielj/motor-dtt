@@ -177,3 +177,26 @@ describe('export actions', () => {
     }
   })
 })
+
+describe('importClientesTemplate', () => {
+  test('imports a valid CSV of client segments and saves to manual maestro', async () => {
+    const seg = useStore.getState().seeds.segmentos[0]
+    const csv = `Distribuidor,RIF,Razón Social,Tipo de Tienda\n` +
+      `Dist 1,J-12345678-9,Cliente Uno,${seg.n3}\n` +
+      `Dist 2,J-99999999-9,Cliente Dos,OTRO_SEGMENTO_INCORRECTO\n`
+    const file = new File([csv], 'planilla.csv', { type: 'text/csv' })
+
+    const result = await useStore.getState().importClientesTemplate(file)
+    expect(result).toEqual({ added: 1, skipped: 1 })
+
+    const manual = await getManualMaestro()
+    expect(manual).toHaveLength(1)
+    expect(manual[0]).toMatchObject({
+      rif: 'J123456789',
+      segmentoN3: seg.n3,
+      macroN1: seg.macroN1,
+      metodo: 'MANUAL',
+    })
+    expect(useStore.getState().learned.maestro).toBe(1)
+  })
+})

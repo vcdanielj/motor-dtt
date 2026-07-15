@@ -21,14 +21,18 @@ type ShowSaveFilePicker = (options?: {
 /** Save a Blob to disk, letting the user pick the location where the browser supports it.
  *  Resolves to 'saved' (File System Access), 'fallback' (anchor download), or 'cancelled'
  *  (user dismissed the save picker) — never throws on user-cancel. */
-export async function saveBlob(blob: Blob, suggestedName: string): Promise<SaveOutcome> {
+export async function saveBlob(
+  blob: Blob,
+  suggestedName: string,
+  typeOptions?: { description: string; accept: Record<string, string[]> }[],
+): Promise<SaveOutcome> {
   const picker = (globalThis as unknown as { showSaveFilePicker?: ShowSaveFilePicker }).showSaveFilePicker
 
   if (typeof picker === 'function') {
     try {
       const handle = await picker({
         suggestedName,
-        types: [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }],
+        types: typeOptions || [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }],
       })
       const writable = await handle.createWritable()
       await writable.write(blob)

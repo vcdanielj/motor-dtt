@@ -19,6 +19,7 @@ const RESULT: PipelineRunResult = {
   maestroTotal: 0,
   conflictos: 0,
   recuperadosMaestro: 0,
+  clientesSinClasificar: [],
 }
 
 class FakePipelineWorker {

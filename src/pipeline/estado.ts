@@ -1,9 +1,10 @@
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import type { MetodoEstado, FlagRegistro } from '@/contracts/row'
+import { bestMatch } from './fuzzy'
 
 export interface EstadoResult {
   estadoStd: string | null
-  metodo: MetodoEstado                 // EXACTO | RIF | CIUDAD | null
+  metodo: MetodoEstado                 // EXACTO | RIF | CIUDAD | FUZZY | null
   flag: Extract<FlagRegistro, 'OK' | 'SIN_ESTADO'>
 }
 
@@ -16,6 +17,13 @@ export interface EstadoContext {
 /** R4: "NO IDENTIFICADO" is a prohibited value → treat as null/empty. */
 export function isProhibitedEstado(normalized: string): boolean {
   return normalized === '' || normalized === 'NO IDENTIFICADO'
+}
+
+/** Cleans a state string by removing common prefixes like "EDO", "ESTADO", etc. */
+export function cleanEstadoString(s: string): string {
+  let cleaned = normalizeText(s)
+  cleaned = cleaned.replace(/^(ESTADOS DE|ESTADO DE|ESTADOS|ESTADO|EDO\b\.?)\s+/g, '')
+  return cleaned.trim()
 }
 
 /** Build the normalized lookup context from the raw seeds (+ optional RIF history). */
@@ -52,13 +60,13 @@ function sinEstado(): EstadoResult {
   return { estadoStd: null, metodo: null, flag: 'SIN_ESTADO' }
 }
 
-/** Resolve one record via the CATALOGO -> RIF -> CIUDAD -> SIN_ESTADO cascade (PRD §6 + R4). */
+/** Resolve one record via the CATALOGO -> RIF -> CIUDAD -> FUZZY -> SIN_ESTADO cascade. */
 export function resolveEstado(
   input: { rif: string | null; ciudad: string | null; estadoCrudo: string | null },
   ctx: EstadoContext,
 ): EstadoResult {
-  // 1. CATALOGO (EXACTO) — normalized estadoCrudo hits the 24-estado catalog exactly.
-  const e = normalizeText(input.estadoCrudo ?? '')
+  // 1. CATALOGO (EXACTO) — normalized & cleaned estadoCrudo hits the 24-estado catalog exactly.
+  const e = cleanEstadoString(input.estadoCrudo ?? '')
   if (!isProhibitedEstado(e) && ctx.catalogo.has(e)) {
     return { estadoStd: e, metodo: 'EXACTO', flag: 'OK' }
   }
@@ -78,6 +86,14 @@ export function resolveEstado(
     const ciudadEstado = ctx.ciudadEstado.get(c)
     if (ciudadEstado) {
       return { estadoStd: ciudadEstado, metodo: 'CIUDAD', flag: 'OK' }
+    }
+  }
+
+  // 3.5. FUZZY — fuzzy match of cleaned estadoCrudo against the 24-estado catalog.
+  if (e !== '' && !isProhibitedEstado(e)) {
+    const match = bestMatch(e, Array.from(ctx.catalogo))
+    if (match && match.score >= 80) {
+      return { estadoStd: match.candidate, metodo: 'FUZZY', flag: 'OK' }
     }
   }
 

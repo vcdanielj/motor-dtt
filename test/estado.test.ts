@@ -112,3 +112,23 @@ describe('resolveEstado — normalizeRif key robustness', () => {
     expect(bare).toEqual({ estadoStd: 'MERIDA', metodo: 'RIF', flag: 'OK' })
   })
 })
+
+describe('resolveEstado — cleanEstadoString and FUZZY state matching', () => {
+  test('strips EDO, ESTADO prefixes and resolves EXACTO', () => {
+    const ctx = makeCtx()
+    const r1 = resolveEstado({ rif: null, ciudad: null, estadoCrudo: 'EDO. ZULIA' }, ctx)
+    const r2 = resolveEstado({ rif: null, ciudad: null, estadoCrudo: 'ESTADO MIRANDA' }, ctx)
+    const r3 = resolveEstado({ rif: null, ciudad: null, estadoCrudo: 'ESTADO DE ARAGUA' }, ctx)
+    expect(r1).toEqual({ estadoStd: 'ZULIA', metodo: 'EXACTO', flag: 'OK' })
+    expect(r2).toEqual({ estadoStd: 'MIRANDA', metodo: 'EXACTO', flag: 'OK' })
+    expect(r3).toEqual({ estadoStd: 'ARAGUA', metodo: 'EXACTO', flag: 'OK' })
+  })
+
+  test('resolves close state matches as FUZZY', () => {
+    const ctx = makeCtx()
+    const r1 = resolveEstado({ rif: null, ciudad: null, estadoCrudo: 'ZULYA' }, ctx)
+    const r2 = resolveEstado({ rif: null, ciudad: null, estadoCrudo: 'ANZOATEGI' }, ctx)
+    expect(r1).toEqual({ estadoStd: 'ZULIA', metodo: 'FUZZY', flag: 'OK' })
+    expect(r2).toEqual({ estadoStd: 'ANZOATEGUI', metodo: 'FUZZY', flag: 'OK' })
+  })
+})

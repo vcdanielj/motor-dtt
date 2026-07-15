@@ -7,7 +7,7 @@ import { normalizeText } from '@/ingest/normalize'
 import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import { resolveSegmento, type SegmentoContext } from '@/pipeline/segmento'
 import { processRow, outputColumns } from '@/pipeline/process-row'
-import type { EstadoContext } from '@/pipeline/estado'
+import { resolveEstado, type EstadoContext } from '@/pipeline/estado'
 import { csvLine } from './csv'
 import { OUTPUT_COLUMNS, type SchemaMap } from '@/contracts/row'
 
@@ -43,10 +43,18 @@ export function observeExportRow(
   schema: SchemaMap,
   cols: ExportExtraCols,
   segSeed: SegmentoContext,
+  estSeed?: EstadoContext,
 ): void {
   const segCrudo = (schema.segmentoCrudo ? rec[schema.segmentoCrudo] : '') ?? ''
+  const estCrudo = (schema.estadoCrudo ? rec[schema.estadoCrudo] : '') ?? ''
   const rif = (schema.rif ? rec[schema.rif] : '') ?? ''
+  const ciudad = (schema.ciudad ? rec[schema.ciudad] : '') ?? ''
+
   const segR = resolveSegmento({ rif: null, crudo: segCrudo }, segSeed)
+  const estR = estSeed
+    ? resolveEstado({ rif, ciudad, estadoCrudo: estCrudo }, estSeed)
+    : { estadoStd: null, metodo: null, flag: 'SIN_ESTADO' as const }
+
   if (segR.metodo === 'EXACTO' || segR.metodo === 'FUZZY') {
     builder.observe({
       rif,
@@ -55,6 +63,17 @@ export function observeExportRow(
       metodo: segR.metodo,
       fechaOrden: cols.mesCol ? parseFechaOrden(rec[cols.mesCol]) : null,
       razonSocial: cols.clienteCol ? rec[cols.clienteCol] : null,
+      estadoStd: estR.estadoStd,
+    })
+  } else if (estR.estadoStd) {
+    builder.observe({
+      rif,
+      segmentoN3: '',
+      macroN1: '',
+      metodo: null,
+      fechaOrden: null,
+      razonSocial: cols.clienteCol ? rec[cols.clienteCol] : null,
+      estadoStd: estR.estadoStd,
     })
   }
 }

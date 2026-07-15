@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
 import { adapters } from '@/adapters'
+import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import {
   getLearnedDiccionario, getManualMaestro, putLearnedDiccionario, putManualMaestro,
   getMeta, putMeta, clearLearned,
@@ -56,6 +58,9 @@ interface StoreState {
   // Editable fuzzy thresholds (Sprint 2 · C3): loaded from meta on init, applied to every
   // subsequent pipeline/export run via the worker message.
   thresholds: Thresholds
+  // Per-stage status map: key = stageIndex (0-5), value = { status, detail }.
+  // Populated by stage events from the pipeline worker; reset when a new run starts.
+  stageStatuses: Record<number, { status: 'running' | 'done'; detail: string }>
   startIngest: (file: File) => Promise<void>
   startPipeline: (file: File) => Promise<void>
   exportBase: () => Promise<void>
@@ -64,6 +69,8 @@ interface StoreState {
   exportLearnedDiccionario: () => Promise<void>
   exportManualMaestro: () => Promise<void>
   importDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
+  exportUnclassifiedTemplate: () => Promise<void>
+  importClientesTemplate: (file: File) => Promise<{ added: number; skipped: number }>
   saveThresholds: (fuzzyThreshold: number, fuzzySuggestFloor: number) => Promise<void>
   resetLearned: () => Promise<void>
 }
@@ -91,6 +98,7 @@ export const useStore = create<StoreState>((set, get) => ({
   exportError: null,
   learned: { diccionario: 0, maestro: 0 },
   thresholds: { fuzzyThreshold: 92, fuzzySuggestFloor: 80 },
+  stageStatuses: {},
   startIngest: async (file) => {
     set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
     const startedAt = Date.now()
@@ -112,6 +120,7 @@ export const useStore = create<StoreState>((set, get) => ({
       exportState: 'idle',
       exportRows: 0,
       exportError: null,
+      stageStatuses: {},   // reset stage progress for new run
     })
     const startedAt = Date.now()
     try {
@@ -120,6 +129,14 @@ export const useStore = create<StoreState>((set, get) => ({
       const runConfig = await loadRunConfig()
       const result = await adapters.runPipeline(file, (e: ProgressEvent) => {
         if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors } }))
+        if (e.type === 'stage') {
+          set((s) => ({
+            stageStatuses: {
+              ...s.stageStatuses,
+              [e.stageIndex]: { status: e.status, detail: e.detail ?? '' },
+            },
+          }))
+        }
       }, runConfig, get().thresholds)
       const summary = { ...result.summary, startedAt, finishedAt: Date.now() }
       set(() => ({
@@ -271,6 +288,90 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     } else {
       skipped = parsed.data.length
+    }
+
+    await get().refreshLearned()
+    return { added, skipped }
+  },
+  exportUnclassifiedTemplate: async () => {
+    const { runResult, runId } = get()
+    if (!runResult || !runId || !runResult.clientesSinClasificar.length) return
+    set({ exportState: 'running' })
+    try {
+      const headers = ['Distribuidor', 'RIF', 'Razón Social', 'Tipo de Tienda']
+      const rows = runResult.clientesSinClasificar.map((c) => [
+        c.distribuidor,
+        c.rif,
+        c.razonSocial,
+        '',
+      ])
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+      XLSX.utils.book_append_sheet(wb, ws, 'Clientes sin Clasificar')
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+
+      const outcome = await adapters.saveBlob(
+        blob,
+        `planilla_clientes_sin_clasificar_${runId}.xlsx`,
+        [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+      )
+      set({ exportState: outcome === 'cancelled' ? 'idle' : 'done' })
+    } catch (err) {
+      set({ exportState: 'error', exportError: (err as Error).message })
+    }
+  },
+  importClientesTemplate: async (file) => {
+    const data = await file.arrayBuffer()
+    const wb = XLSX.read(data, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const json = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
+
+    if (!json.length) return { added: 0, skipped: 0 }
+
+    const fields = Object.keys(json[0])
+    const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+    const rifKey = fields.find((f) => ['rif', 'numeroderif'].includes(norm(f)))
+    const tipoTiendaKey = fields.find((f) => ['tipodetienda', 'segmentodetienda', 'tipo', 'segmento'].includes(norm(f)))
+    const razonSocialKey = fields.find((f) => ['razonsocial', 'nombre', 'nombrecliente', 'cliente'].includes(norm(f)))
+
+    if (!rifKey || !tipoTiendaKey) {
+      throw new Error('Archivo no válido: debe contener las columnas "RIF" y "Tipo de Tienda"')
+    }
+
+    let added = 0
+    let skipped = 0
+    const segmentos = get().seeds.segmentos
+
+    for (const row of json) {
+      const rif = (row[rifKey] ?? '').trim()
+      const rawTipo = (row[tipoTiendaKey] ?? '').trim()
+      const razonSocial = razonSocialKey ? (row[razonSocialKey] ?? '').trim() : null
+
+      if (!rif || !rawTipo) {
+        skipped++
+        continue
+      }
+
+      const normTipo = normalizeText(rawTipo)
+      const segMatch = segmentos.find((s) => normalizeText(s.n3) === normTipo)
+      if (!segMatch) {
+        skipped++
+        continue
+      }
+
+      await putManualMaestro({
+        rif: normalizeRif(rif),
+        razonSocial: razonSocial || null,
+        segmentoN3: segMatch.n3,
+        macroN1: segMatch.macroN1,
+        metodo: 'MANUAL',
+        confianza: 'N3',
+        estadoHabitual: null,
+        fechaClasificacion: new Date().toISOString(),
+        reglaCanonica: 'MANUAL',
+      })
+      added++
     }
 
     await get().refreshLearned()

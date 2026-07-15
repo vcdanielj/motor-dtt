@@ -13,6 +13,7 @@ export default function Corrida() {
   const runResult = useStore((s) => s.runResult)
   const exportState = useStore((s) => s.exportState)
   const exportBase = useStore((s) => s.exportBase)
+  const exportUnclassifiedTemplate = useStore((s) => s.exportUnclassifiedTemplate)
 
   return (
     <div className="max-w-[1240px]">
@@ -20,10 +21,10 @@ export default function Corrida() {
       <p className="mt-1 text-xs text-slate">
         Carga un archivo CSV o XLSX consolidado para iniciar el pipeline de estandarización.
       </p>
-
+ 
       <Card className="mt-5">
         {ingest.phase === 'idle' && <DropZone />}
-
+ 
         {ingest.phase === 'running' && (
           <div>
             <div className="flex items-center gap-3">
@@ -38,7 +39,7 @@ export default function Corrida() {
             <StageBar />
           </div>
         )}
-
+ 
         {ingest.phase === 'done' && ingest.summary && (
           <div>
             <div className="rounded-md border border-green bg-bg px-4 py-3 text-sm font-semibold text-green">
@@ -57,7 +58,7 @@ export default function Corrida() {
               </span>
             </div>
             <StageBar />
-            <div className="mt-4 flex items-center gap-3">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => void exportBase()}
@@ -66,6 +67,16 @@ export default function Corrida() {
               >
                 {exportState === 'running' ? 'Generando…' : 'Descargar base estandarizada'}
               </button>
+              {runResult && runResult.clientesSinClasificar && runResult.clientesSinClasificar.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void exportUnclassifiedTemplate()}
+                  disabled={exportState === 'running'}
+                  className="rounded-md border border-line bg-white text-navy px-4 py-2 text-xs font-semibold hover:bg-line/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Descargar plantilla sin clasificar ({runResult.clientesSinClasificar.length})
+                </button>
+              )}
               {exportState === 'running' && (
                 <div
                   className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-line border-t-navy"

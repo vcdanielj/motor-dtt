@@ -10,6 +10,7 @@ export default function Config() {
   const exportLearnedDiccionario = useStore((s) => s.exportLearnedDiccionario)
   const exportManualMaestro = useStore((s) => s.exportManualMaestro)
   const importDiccionarioCsv = useStore((s) => s.importDiccionarioCsv)
+  const importClientesTemplate = useStore((s) => s.importClientesTemplate)
   const resetLearned = useStore((s) => s.resetLearned)
 
   const macroCount = useMemo(() => new Set(seeds.segmentos.map((s) => s.macroN1)).size, [seeds.segmentos])
@@ -32,6 +33,7 @@ export default function Config() {
   const [confirmingReset, setConfirmingReset] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importingClientes, setImportingClientes] = useState(false)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -58,6 +60,21 @@ export default function Config() {
       showToast(`${added} añadidas · ${skipped} omitidas`)
     } finally {
       setImporting(false)
+    }
+  }
+
+  const handleImportClientesChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file name later
+    if (!file) return
+    setImportingClientes(true)
+    try {
+      const { added, skipped } = await importClientesTemplate(file)
+      showToast(`${added} clientes importados · ${skipped} omitidos/incorrectos`)
+    } catch (err) {
+      showToast((err as Error).message || 'Error al importar plantilla de clientes')
+    } finally {
+      setImportingClientes(false)
     }
   }
 
@@ -201,6 +218,16 @@ export default function Config() {
               className="hidden"
               disabled={importing}
               onChange={(e) => void handleImportChange(e)}
+            />
+          </label>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-line px-3 py-1.5 text-xs font-semibold text-navy hover:bg-line/30">
+            {importingClientes ? 'Importando…' : 'Importar planilla de clientes (XLSX / CSV)'}
+            <input
+              type="file"
+              accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              disabled={importingClientes}
+              onChange={(e) => void handleImportClientesChange(e)}
             />
           </label>
 

@@ -1,7 +1,5 @@
 import { useStore } from '@/state/store'
 
-const fmt = new Intl.NumberFormat('es-VE')
-
 type StageStatus = 'pendiente' | 'en curso' | 'completado' | 'error'
 
 const STATUS_CLASSES: Record<StageStatus, string> = {
@@ -14,27 +12,23 @@ const STATUS_CLASSES: Record<StageStatus, string> = {
 export default function StageBar() {
   const stages = useStore((s) => s.stages)
   const ingest = useStore((s) => s.ingest)
+  const stageStatuses = useStore((s) => s.stageStatuses)
 
   return (
     <div className="mt-4 overflow-hidden rounded-lg border border-line bg-panel">
       {stages.map((label, i) => {
-        // Sprint 1: only the first stage (Ingesta) reflects the real worker.
-        // The other five are not wired yet — showing them as "pendiente" is honest.
-        const isIngesta = i === 0
         let status: StageStatus = 'pendiente'
         let detail = 'pendiente'
 
-        if (isIngesta) {
-          if (ingest.phase === 'running') {
-            status = 'en curso'
-            detail = 'Leyendo archivo…'
-          } else if (ingest.phase === 'done' && ingest.summary) {
-            status = 'completado'
-            detail = `${fmt.format(ingest.summary.totalRows)} filas · ${fmt.format(ingest.summary.distributors)} distribuidores`
-          } else if (ingest.phase === 'error') {
-            status = 'error'
-            detail = 'error'
-          }
+        const workerStage = stageStatuses[i]
+        if (workerStage) {
+          // Worker posted a stage event for this index — use it directly.
+          status = workerStage.status === 'running' ? 'en curso' : 'completado'
+          detail = workerStage.detail
+        } else if (ingest.phase === 'error' && i === 0 && Object.keys(stageStatuses).length === 0) {
+          // Stage 0 fallback: error during counting-only path (no stage events emitted).
+          status = 'error'
+          detail = ingest.error ?? 'error'
         }
 
         return (

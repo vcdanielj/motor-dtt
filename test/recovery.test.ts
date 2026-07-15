@@ -23,8 +23,8 @@ describe('applyMaestroRecovery', () => {
     const segmento: MethodTally = { MAESTRO: 0, EXACTO: 10, FUZZY: 5, SIN_CLASIFICAR: 8 }
     const maestro = new Map([['J1', maestroEntry({ rif: 'J-1' })]])
     const unresueltoPorRif = new Map([
-      ['J1', { count: 3, ton: 12 }],   // known to the maestro -> recovered
-      ['J2', { count: 5, ton: 20 }],   // unknown -> stays unresolved
+      ['J1', { count: 3, ton: 12, rif: 'J-1', razonSocial: 'Cliente 1', distribuidor: 'DIST_A' }],   // known to the maestro -> recovered
+      ['J2', { count: 5, ton: 20, rif: 'J-2', razonSocial: 'Cliente 2', distribuidor: 'DIST_B' }],   // unknown -> stays unresolved
     ])
     const unresueltoDistRif = new Map<string, Map<string, number>>()
 
@@ -46,7 +46,7 @@ describe('applyMaestroRecovery', () => {
   test('no RIF in unresueltoPorRif is known to the maestro -> no-op', () => {
     const segmento: MethodTally = { MAESTRO: 0, EXACTO: 10, FUZZY: 0, SIN_CLASIFICAR: 4 }
     const maestro = new Map<string, MaestroEntry>()
-    const unresueltoPorRif = new Map([['UNKNOWN', { count: 4, ton: 9 }]])
+    const unresueltoPorRif = new Map([['UNKNOWN', { count: 4, ton: 9, rif: 'UNKNOWN', razonSocial: 'Unknown', distribuidor: 'DIST_C' }]])
 
     const result = applyMaestroRecovery({
       segmento,
@@ -72,9 +72,9 @@ describe('applyMaestroRecovery', () => {
       ['J2', maestroEntry({ rif: 'J-2' })],
     ])
     const unresueltoPorRif = new Map([
-      ['J1', { count: 2, ton: 0 }],
-      ['J2', { count: 1, ton: 0 }],
-      ['J3', { count: 3, ton: 0 }], // unknown RIF, never recovered
+      ['J1', { count: 2, ton: 0, rif: 'J-1', razonSocial: 'Cliente 1', distribuidor: 'DIST_A' }],
+      ['J2', { count: 1, ton: 0, rif: 'J-2', razonSocial: 'Cliente 2', distribuidor: 'DIST_B' }],
+      ['J3', { count: 3, ton: 0, rif: 'J-3', razonSocial: 'Cliente 3', distribuidor: 'DIST_A' }], // unknown RIF, never recovered
     ])
     const unresueltoDistRif = new Map([
       ['DIST_A', new Map([['J1', 2], ['J3', 3]])],   // 2 recoverable (J1), 3 not (J3)

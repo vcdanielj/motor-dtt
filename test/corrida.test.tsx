@@ -20,6 +20,7 @@ const BASE_RUN_RESULT = {
   maestroTotal: 0,
   conflictos: 0,
   recuperadosMaestro: 0,
+  clientesSinClasificar: [],
 }
 
 test('shows live row/distributor counts from ingest state', () => {
@@ -66,6 +67,7 @@ test('done state shows real classification once a pipeline run has completed', (
       maestroTotal: 0,
       conflictos: 0,
       recuperadosMaestro: 0,
+      clientesSinClasificar: [],
     },
   }))
   render(<Corrida />)

@@ -6,6 +6,9 @@ import type { MaestroEntry } from '@/contracts/maestro'
 export interface UnresueltoTally {
   count: number
   ton: number
+  rif: string
+  razonSocial: string
+  distribuidor: string
 }
 
 export interface MaestroRecoveryInput {

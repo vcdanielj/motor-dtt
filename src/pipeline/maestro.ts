@@ -10,6 +10,7 @@ export interface Observation {
   metodo: MetodoSegmento          // how THIS row was resolved (EXACTO|FUZZY|MANUAL|MAESTRO|null)
   fechaOrden: number | null       // sortable recency key, higher = more recent. Null if unknown.
   razonSocial?: string | null     // optional client name (first seen wins)
+  estadoStd?: string | null       // resolved state
 }
 
 /** A cross-macro conflict: this RIF was observed under more than one macro-canal — CONFLICTO_MAYOR. */
@@ -37,6 +38,7 @@ interface RifAggregate {
   razonSocial: string | null                   // first non-empty seen
   registros: number
   segmentos: Map<string, SegmentoAggregate>    // segmentoN3 -> aggregate
+  estados: Map<string, number>                 // estadoStd -> count
 }
 
 /** Accumulates per-row observations into compact per-RIF aggregates (not a growing row list),
@@ -45,20 +47,28 @@ export class MaestroBuilder {
   private rifs = new Map<string, RifAggregate>()
 
   observe(o: Observation): void {
-    if (o.segmentoN3 == null || o.segmentoN3.trim() === '') return
-
     const key = normalizeRif(o.rif)
     if (key === '') return
 
+    const hasSegment = o.segmentoN3 != null && o.segmentoN3.trim() !== ''
+    const hasState = o.estadoStd != null && o.estadoStd.trim() !== ''
+    if (!hasSegment && !hasState) return
+
     let agg = this.rifs.get(key)
     if (!agg) {
-      agg = { rawRif: o.rif, razonSocial: null, registros: 0, segmentos: new Map() }
+      agg = { rawRif: o.rif, razonSocial: null, registros: 0, segmentos: new Map(), estados: new Map() }
       this.rifs.set(key, agg)
     }
     if ((agg.razonSocial == null || agg.razonSocial === '') && o.razonSocial) {
       agg.razonSocial = o.razonSocial
     }
     agg.registros++
+
+    if (o.estadoStd) {
+      agg.estados.set(o.estadoStd, (agg.estados.get(o.estadoStd) ?? 0) + 1)
+    }
+
+    if (o.segmentoN3 == null || o.segmentoN3.trim() === '') return
 
     let seg = agg.segmentos.get(o.segmentoN3)
     if (!seg) {
@@ -100,6 +110,14 @@ export class MaestroBuilder {
 
       const [winnerSegmento, reglaCanonica] = pickWinner(segEntries)
       const winnerMacro = agg.segmentos.get(winnerSegmento)?.macroN1 ?? macros[0]
+
+      // Determine state moda (most frequent state)
+      let estadoHabitual: string | null = null
+      if (agg.estados.size > 0) {
+        const sortedEstados = [...agg.estados.entries()].sort((a, b) => b[1] - a[1])
+        estadoHabitual = sortedEstados[0][0]
+      }
+
       maestro.set(key, {
         rif: agg.rawRif,
         razonSocial: agg.razonSocial,
@@ -107,7 +125,7 @@ export class MaestroBuilder {
         macroN1: winnerMacro,
         metodo: 'MAESTRO',
         confianza: 'N3',
-        estadoHabitual: null,
+        estadoHabitual,
         fechaClasificacion: null,
         reglaCanonica,
       })

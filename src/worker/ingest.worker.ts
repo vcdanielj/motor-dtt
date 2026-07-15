@@ -197,6 +197,7 @@ async function runPipeline(
   seedManualMaestro(maestroBuilder, manualMaestro)
   const unresueltoPorRif = new Map<string, UnresueltoTally>()
   const unresueltoDistRif = new Map<string, Map<string, number>>()
+  const stateUnresueltoRif = new Map<string, number>()
 
   let schema: SchemaMap | null = null
   let badSchema = false
@@ -225,6 +226,12 @@ async function runPipeline(
       headers.find((h) => normalizeText(h).includes('FECHA')) ??
       null
     clienteCol = headers.find((h) => normalizeText(h) === 'CLIENTE') ?? null
+    // Stages 1-4 all happen row-by-row in the same streaming pass — mark them all as running
+    // once we have confirmed headers so the user sees the progress in the StageBar.
+    post({ type: 'stage', stageIndex: 0, status: 'running', detail: 'Leyendo archivo…' })
+    post({ type: 'stage', stageIndex: 1, status: 'running', detail: 'Normalizando textos…' })
+    post({ type: 'stage', stageIndex: 2, status: 'running', detail: 'Resolviendo segmentos…' })
+    post({ type: 'stage', stageIndex: 3, status: 'running', detail: 'Resolviendo estados…' })
   }
 
   const onRow = (rec: Record<string, string>) => {
@@ -267,6 +274,8 @@ async function runPipeline(
     metrics.add(distribuidor, resolved, ton)
     cola.addRow(segCrudo, resolved, ton)
 
+    const rifKey = normalizeRif(rif)
+
     // Maestro observation + unresolved-with-RIF tracking (M2).
     if (resolved.metodoSegmento === 'EXACTO' || resolved.metodoSegmento === 'FUZZY') {
       maestroBuilder.observe({
@@ -276,19 +285,51 @@ async function runPipeline(
         metodo: resolved.metodoSegmento,
         fechaOrden: mesCol ? parseFechaOrden(rec[mesCol]) : null,
         razonSocial: clienteCol ? rec[clienteCol] : null,
+        estadoStd: resolved.estadoStd,
       })
-    } else if (flagRegistro === 'SIN_CLASIFICAR') {
-      const rifKey = normalizeRif(rif)
+    } else {
+      if (resolved.estadoStd) {
+        maestroBuilder.observe({
+          rif,
+          segmentoN3: '',
+          macroN1: '',
+          metodo: null,
+          fechaOrden: null,
+          razonSocial: clienteCol ? rec[clienteCol] : null,
+          estadoStd: resolved.estadoStd,
+        })
+      }
+    }
+
+    if (flagRegistro === 'SIN_CLASIFICAR') {
       if (rifKey !== '') {
-        const g = unresueltoPorRif.get(rifKey)
         const safeTon = Number.isFinite(ton) ? ton : 0
-        if (g) { g.count++; g.ton += safeTon }
-        else unresueltoPorRif.set(rifKey, { count: 1, ton: safeTon })
+        const razonSocial = (clienteCol ? rec[clienteCol] : '') || ''
+        const g = unresueltoPorRif.get(rifKey)
+        if (g) {
+          g.count++
+          g.ton += safeTon
+          if (!g.razonSocial && razonSocial) {
+            g.razonSocial = razonSocial
+          }
+        } else {
+          unresueltoPorRif.set(rifKey, {
+            count: 1,
+            ton: safeTon,
+            rif,
+            razonSocial,
+            distribuidor,
+          })
+        }
 
         let distMap = unresueltoDistRif.get(distribuidor)
         if (!distMap) { distMap = new Map(); unresueltoDistRif.set(distribuidor, distMap) }
         distMap.set(rifKey, (distMap.get(rifKey) ?? 0) + 1)
       }
+    }
+
+    if (estR.flag === 'SIN_ESTADO' && rifKey !== '') {
+      stateUnresueltoRif.set(rifKey, (stateUnresueltoRif.get(rifKey) ?? 0) + 1)
     }
 
     if (rows % 5000 === 0) bump()
@@ -347,6 +388,9 @@ async function runPipeline(
 
     const totals = metrics.totals()
 
+    // ── Stage 5: Actualización Maestro (build canonical client map + RIF recovery) ──
+    post({ type: 'stage', stageIndex: 4, status: 'running', detail: 'Construyendo maestro de clientes…' })
+
     // ── Maestro (M2): build the canonical client segments from this pass's resolved rows, then
     // use them to recover SIN_CLASIFICAR rows whose RIF is now known — single pass, no re-read. ──
     const { maestro, conflictos } = maestroBuilder.build()
@@ -357,6 +401,28 @@ async function runPipeline(
       unresueltoDistRif,
       maestro,
     })
+
+    // RIF-based state recovery for statistics
+    let recuperadosEstado = 0
+    for (const [rKey, count] of stateUnresueltoRif) {
+      const entry = maestro.get(rKey)
+      if (entry && entry.estadoHabitual) {
+        recuperadosEstado += count
+      }
+    }
+    const finalEstadoValidoPct = pct1(totals.estadoValido + recuperadosEstado, rows)
+
+    // Stages 1-4 are done — stream is finished, all row-level resolution complete.
+    const fmt = new Intl.NumberFormat('es-VE')
+    post({ type: 'stage', stageIndex: 0, status: 'done', detail: `${fmt.format(rows)} filas · ${fmt.format(owners.size)} distribuidores` })
+    post({ type: 'stage', stageIndex: 1, status: 'done', detail: `${segCache.size} variantes normalizadas` })
+    post({ type: 'stage', stageIndex: 2, status: 'done', detail: `${fmt.format(segmento.EXACTO + segmento.FUZZY)} resueltos · ${fmt.format(segmento.SIN_CLASIFICAR)} pendientes` })
+    post({ type: 'stage', stageIndex: 3, status: 'done', detail: `${finalEstadoValidoPct}% estado válido` })
+
+    post({ type: 'stage', stageIndex: 4, status: 'done', detail: `${maestro.size.toLocaleString('es-VE')} clientes · ${recovery.recuperados.toLocaleString('es-VE')} filas recuperadas` })
+
+    // ── Stage 6: Dedup — assemble distribuidores, deduplicated cola + final result ──
+    post({ type: 'stage', stageIndex: 5, status: 'running', detail: 'Ensamblando resultado…' })
 
     const distribuidores: DistribuidorRow[] = metrics.distribuidores().map((d, i) => {
       // Per-distributor recovery only ever raises the post-cascade share (scdcPost); scdcCrudo
@@ -393,6 +459,19 @@ async function runPipeline(
       .sort((a, b) => b.tonAfectadas - a.tonAfectadas)
       .slice(0, 200)
 
+    const clientesSinClasificar: import('@/contracts/pipeline').ClientesSinClasificarRow[] = []
+    for (const [rKey, tally] of unresueltoPorRif) {
+      if (!maestro.has(rKey)) {
+        clientesSinClasificar.push({
+          distribuidor: tally.distribuidor,
+          rif: tally.rif,
+          razonSocial: tally.razonSocial || 'SIN RAZÓN SOCIAL',
+          ton: tally.ton,
+          count: tally.count,
+        })
+      }
+    }
+
     const result: PipelineRunResult = {
       summary,
       segmento: recovery.segmento,
@@ -401,7 +480,7 @@ async function runPipeline(
       // rows) without raising crudoPresent (rows that HAD a crudo value), which could otherwise
       // push this ratio past 100%.
       clasificacionCrudoPct: Math.min(100, pct1(rows - recovery.segmento.SIN_CLASIFICAR, crudoPresent)),
-      estadoValidoPct: pct1(totals.estadoValido, rows),
+      estadoValidoPct: finalEstadoValidoPct,
       tonTotal,
       tonSinClasificar: recovery.tonSinClasificar,
       distribuidores,
@@ -410,7 +489,9 @@ async function runPipeline(
       maestroTotal: maestro.size,
       conflictos: conflictos.length,
       recuperadosMaestro: recovery.recuperados,
+      clientesSinClasificar,
     }
+    post({ type: 'stage', stageIndex: 5, status: 'done', detail: `${colaMerged.length.toLocaleString('es-VE')} ítems en cola · ${conflictos.length.toLocaleString('es-VE')} conflictos` })
     post({ type: 'result', result })
   } catch (e) {
     return post({ type: 'error', code: 'PARSE_ERROR', message: (e as Error).message || 'Error al ensamblar el resultado' })
@@ -457,13 +538,21 @@ async function runExport(
         extraCols = detectExportExtraCols(headers)
         return schemaIsUsable(schemaA)
       },
-      (rec) => observeExportRow(builder, rec, schemaA!, extraCols, segSeed),
+      (rec) => observeExportRow(builder, rec, schemaA!, extraCols, segSeed, est),
     )
     if (passA === 'bad-schema') return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento y estado' })
     const { maestro } = builder.build()
 
     // ── Pass B — write with the full maestro applied. ──
     const seg: SegmentoContext = { index, maestro, fuzzyThreshold, fuzzySuggestFloor }
+    const estadoByRif = new Map<string, string>()
+    for (const [rKey, entry] of maestro) {
+      if (entry.estadoHabitual) {
+        estadoByRif.set(rKey, entry.estadoHabitual)
+      }
+    }
+    const estWithRif = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado, estadoByRif)
+
     let schemaB: SchemaMap | null = null
     let headers: string[] = []
     let rows = 0
@@ -477,7 +566,7 @@ async function runExport(
         return schemaIsUsable(schemaB)
       },
       (rec) => {
-        parts.push(exportRowLine(rec, headers, schemaB!, seg, est, versionDiccionario, runId) + '\n')
+        parts.push(exportRowLine(rec, headers, schemaB!, seg, estWithRif, versionDiccionario, runId) + '\n')
         rows++
         if (rows % 5000 === 0) post({ type: 'progress', rows, distributors: 0, bytesRead: file.size })
       },
