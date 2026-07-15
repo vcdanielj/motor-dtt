@@ -318,6 +318,9 @@ export default function Manual() {
             La misma corrida, con la misma configuración, produce siempre el mismo resultado. La base estandarizada
             es una vista derivada: siempre se puede regenerar desde los crudos.
           </Callout>
+          <Callout tone="amber" icon="📥" title="Plantillas por Distribuidor (Formato Heinz)">
+            Si hay clientes nuevos sin clasificar, puedes descargar un archivo ZIP que contiene plantillas individuales por distribuidor con formato oficial Heinz. Éstas incluyen una pestaña de «Manual de Segmentos» y validación con menús desplegables (dropdown) para que el distribuidor clasifique con un clic. Luego, importas la planilla resuelta en la pantalla de Configuración.
+          </Callout>
         </section>
 
         {/* ============= 04 · Las seis pantallas ============= */}
@@ -483,34 +486,37 @@ export default function Manual() {
           <Prose>
             <p>
               El programa prohíbe el valor «NO IDENTIFICADO»: el motor lo trata como vacío y trata de recuperar el
-              estado real por otras vías.
+              estado real por otras vías. Para esto, se limpian prefijos comunes como «EDO», «ESTADO», «EDO.», «ESTADO DE» antes de buscar coincidencia.
             </p>
           </Prose>
 
           <div className="mt-5 flex max-w-[720px] flex-col">
-            <CascadeNode accent="navy" method="1 · CATÁLOGO" chips={<Chip tone="navy">exacto</Chip>}>
-              Si el estado crudo coincide con uno de los 24 estados oficiales de Venezuela, se acepta.
+            <CascadeNode accent="navy" method="1 · CATÁLOGO (EXACTO)" chips={<Chip tone="navy">exacto</Chip>}>
+              Si el estado crudo (limpio de prefijos) coincide con uno de los 24 estados oficiales de Venezuela, se acepta.
             </CascadeNode>
-            <CascadeArrow>si es «NO IDENTIFICADO» o vacío</CascadeArrow>
+            <CascadeArrow>si no coincide de forma exacta</CascadeArrow>
             <CascadeNode
               accent="gold"
-              method="2 · POR RIF"
+              method="2 · POR RIF (HISTÓRICO)"
               chips={
                 <>
                   <Chip tone="gold">histórico</Chip>
-                  <Chip tone="slate">en desarrollo</Chip>
+                  <Chip tone="green">activo</Chip>
                 </>
               }
             >
-              Se usa el estado válido más frecuente de ese cliente en el histórico.
+              Se recupera el estado a través del historial del cliente (RIF), calculando su moda o estado más recurrente en otras transacciones.
             </CascadeNode>
-            <CascadeArrow>si el RIF no ayuda</CascadeArrow>
+            <CascadeArrow>si el RIF no tiene historial geográfico</CascadeArrow>
             <CascadeNode accent="cyan" method="3 · POR CIUDAD" chips={<Chip tone="cyan">tabla ciudad→estado</Chip>}>
-              Se deduce el estado a partir de la ciudad del cliente. Si RIF y Ciudad discrepan, gana el RIF (y se
-              anota como advertencia).
+              Se deduce el estado a partir de la ciudad del cliente usando la matriz precargada en el sistema.
+            </CascadeNode>
+            <CascadeArrow>si la ciudad no resuelve</CascadeArrow>
+            <CascadeNode accent="amber" method="4 · COINCIDENCIA DIFUSA" chips={<Chip tone="amber">fuzzy &gt;= 80</Chip>}>
+              Se realiza una búsqueda difusa (Levenshtein) del estado crudo contra los 24 estados oficiales para capturar errores de escritura comunes (ej: «ZULYA» → «ZULIA»).
             </CascadeNode>
             <CascadeArrow>si nada resuelve</CascadeArrow>
-            <CascadeNode accent="red" method="4 · SIN_ESTADO" chips={<Chip tone="red">a revisión</Chip>}>
+            <CascadeNode accent="red" method="5 · SIN_ESTADO" chips={<Chip tone="red">a revisión</Chip>}>
               Queda marcado sin estado, nunca imputado.
             </CascadeNode>
           </div>
