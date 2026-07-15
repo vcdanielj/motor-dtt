@@ -11,9 +11,9 @@ test('clicking nav-manual switches the active view to manual', () => {
 
 test('renders key manual content: cascade heading, SCDC and privacy', () => {
   render(<Manual />)
-  expect(screen.getByText(/Cómo resuelve el segmento/i)).toBeInTheDocument()
-  expect(screen.getByText(/Entender el SCDC/i)).toBeInTheDocument()
+  expect(screen.getAllByText(/Cómo resuelve el segmento/i).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/Entender el SCDC/i).length).toBeGreaterThan(0)
   expect(screen.getByText('740.009')).toBeInTheDocument()
-  expect(screen.getByText(/Privacidad de los datos/i)).toBeInTheDocument()
+  expect(screen.getAllByText(/Privacidad de los datos/i).length).toBeGreaterThan(0)
   expect(screen.getByText(/Local-first, sin excepciones/i)).toBeInTheDocument()
 })

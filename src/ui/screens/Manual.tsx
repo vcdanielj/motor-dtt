@@ -43,7 +43,7 @@ function SectionHead({ n, title, sub }: { n: string; title: string; sub?: string
 }
 
 function Prose({ children }: { children: ReactNode }) {
-  return <div className="mt-4 flex max-w-[68ch] flex-col gap-3 text-[13px] leading-relaxed text-ink">{children}</div>
+  return <div className="mt-4 flex max-w-none flex-col gap-3 text-[13px] leading-relaxed text-ink">{children}</div>
 }
 
 const CALLOUT_TONE: Record<Tone, string> = {
@@ -58,7 +58,7 @@ const CALLOUT_TONE: Record<Tone, string> = {
 
 function Callout({ tone, icon, title, children }: { tone: Tone; icon: string; title: string; children: ReactNode }) {
   return (
-    <div className={`mt-4 flex max-w-[68ch] gap-3 rounded-lg border px-4 py-3 ${CALLOUT_TONE[tone]}`}>
+    <div className={`mt-4 flex max-w-none gap-3 rounded-lg border px-4 py-3 ${CALLOUT_TONE[tone]}`}>
       <span aria-hidden="true" className="mt-0.5 shrink-0 font-mono text-sm font-bold">
         {icon}
       </span>
@@ -80,7 +80,7 @@ function Step({ n, title, soon, children }: { n: number; title: string; soon?: b
         <h3 className="text-sm font-bold text-ink">{title}</h3>
         {soon ? <Chip tone="slate">próximamente</Chip> : null}
       </div>
-      <p className="mt-1.5 max-w-[68ch] text-xs leading-relaxed text-slate">{children}</p>
+      <p className="mt-1.5 max-w-none text-xs leading-relaxed text-slate">{children}</p>
     </li>
   )
 }
@@ -127,7 +127,7 @@ function CascadeNode({
         <span className={`font-mono text-sm font-bold ${ACCENT_TEXT[accent]}`}>{method}</span>
         {chips}
       </div>
-      <p className="mt-1.5 max-w-[58ch] text-xs leading-relaxed text-slate">{children}</p>
+      <p className="mt-1.5 max-w-none text-xs leading-relaxed text-slate">{children}</p>
     </div>
   )
 }
@@ -193,7 +193,7 @@ function FaqItem({ q, children }: { q: string; children: ReactNode }) {
           +
         </span>
       </summary>
-      <p className="mt-2 max-w-[68ch] text-xs leading-relaxed text-slate">{children}</p>
+      <p className="mt-2 max-w-none text-xs leading-relaxed text-slate">{children}</p>
     </details>
   )
 }
@@ -207,10 +207,10 @@ export default function Manual() {
           <span className="rounded bg-red px-2 py-0.5 font-bold text-panel">DTT</span>
           <span>Motor&nbsp;DTT · Manual de uso</span>
         </div>
-        <h1 className="mt-3 max-w-[46ch] text-2xl font-bold leading-snug sm:text-3xl">
+        <h1 className="mt-3 max-w-4xl text-2xl font-bold leading-snug sm:text-3xl">
           Estandariza el sell-out del canal DTT sin que un solo dato salga de tu computadora.
         </h1>
-        <p className="mt-3 max-w-[68ch] text-sm leading-relaxed text-panel/80">
+        <p className="mt-3 max-w-4xl text-sm leading-relaxed text-panel/80">
           El Motor DTT toma los reportes crudos de los distribuidores —donde el <em>segmento de tienda</em> y el{' '}
           <em>estado</em> llegan como texto libre— y los resuelve a un catálogo estándar mediante una cascada
           automática, con trazabilidad por registro y una cola para lo que necesita criterio humano.
@@ -223,11 +223,32 @@ export default function Manual() {
         </div>
       </div>
 
-      <div className="mt-10 flex flex-col gap-12">
-        {/* ============= 01 · Qué es ============= */}
-        <section id="que-es">
-          <SectionHead n="01" title="Qué es y para qué sirve" sub="Una herramienta para el analista de Trade Marketing, no un sistema de TI." />
-          <Prose>
+      <div className="mt-8 lg:grid lg:grid-cols-4 lg:gap-8 items-start">
+        {/* Sticky side outline navigation */}
+        <aside className="no-print hidden lg:block lg:col-span-1 sticky top-6 self-start max-h-[calc(100vh-4rem)] overflow-y-auto border-r border-line/30 pr-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-navy mb-4">Manual de Uso</div>
+          <ul className="flex flex-col gap-2.5 text-xs font-semibold text-slate">
+            <li><a href="#que-es" className="block py-1 hover:text-red transition-colors">01 · Qué es y para qué sirve</a></li>
+            <li><a href="#antes" className="block py-1 hover:text-red transition-colors">02 · Antes de empezar</a></li>
+            <li><a href="#flujo" className="block py-1 hover:text-red transition-colors">03 · El flujo en 5 pasos</a></li>
+            <li><a href="#pantallas" className="block py-1 hover:text-red transition-colors">04 · Las seis pantallas</a></li>
+            <li><a href="#segmento" className="block py-1 hover:text-red transition-colors">05 · Cómo resuelve el segmento</a></li>
+            <li><a href="#estado" className="block py-1 hover:text-red transition-colors">06 · Cómo resuelve el estado</a></li>
+            <li><a href="#scdc" className="block py-1 hover:text-red transition-colors">07 · Entender el SCDC</a></li>
+            <li><a href="#catalogo" className="block py-1 hover:text-red transition-colors">08 · El catálogo estándar</a></li>
+            <li><a href="#banderas" className="block py-1 hover:text-red transition-colors">09 · Banderas de registro</a></li>
+            <li><a href="#privacidad" className="block py-1 hover:text-red transition-colors">10 · Privacidad de los datos</a></li>
+            <li><a href="#faq" className="block py-1 hover:text-red transition-colors">11 · Preguntas frecuentes</a></li>
+            <li><a href="#glosario" className="block py-1 hover:text-red transition-colors">12 · Glosario</a></li>
+          </ul>
+        </aside>
+
+        {/* Content sections */}
+        <div className="lg:col-span-3 flex flex-col gap-12">
+          {/* ============= 01 · Qué es ============= */}
+          <section id="que-es">
+            <SectionHead n="01" title="Qué es y para qué sirve" sub="Una herramienta para el analista de Trade Marketing, no un sistema de TI." />
+            <Prose>
             <p>
               Cada semestre, los <strong>63 distribuidores</strong> del canal DTT reportan cerca de{' '}
               <strong>740.000 transacciones</strong>, cada uno con su propio formato. Las dos variables cualitativas
@@ -792,6 +813,7 @@ export default function Manual() {
             </GlossItem>
           </dl>
         </section>
+      </div>
       </div>
 
       <footer className="mt-12 flex flex-col gap-1 border-t border-line pt-4 text-[11px] text-slate-2">

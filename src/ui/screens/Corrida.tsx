@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore } from '@/state/store'
 import Card from '@/ui/components/Card'
 import DropZone from '@/ui/components/DropZone'
@@ -15,6 +16,28 @@ export default function Corrida() {
   const exportBase = useStore((s) => s.exportBase)
   const exportUnclassifiedTemplate = useStore((s) => s.exportUnclassifiedTemplate)
   const exportUnclassifiedZip = useStore((s) => s.exportUnclassifiedZip)
+  const importClientesTemplate = useStore((s) => s.importClientesTemplate)
+  const lastFile = useStore((s) => s.lastFile)
+  const startPipeline = useStore((s) => s.startPipeline)
+
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<string | null>(null)
+
+  const handleImportClientesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const { added, skipped } = await importClientesTemplate(file)
+      setImportResult(`${added} clientes importados · ${skipped} omitidos`)
+    } catch (err) {
+      setImportResult((err as Error).message || 'Error al importar plantilla')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   return (
     <div className="max-w-[1240px]">
@@ -100,6 +123,40 @@ export default function Corrida() {
               {exportState === 'error' && (
                 <span className="text-xs font-semibold text-red">No se pudo exportar</span>
               )}
+            </div>
+
+            {/* Template Carga Box */}
+            <div className="mt-6 border-t border-line/60 pt-5">
+              <div className="text-xs font-bold uppercase tracking-wider text-navy mb-1.5">Cargar plantilla completada</div>
+              <p className="text-xs text-slate mb-3">
+                Sube la plantilla (.xlsx o .csv) que rellenaron tus distribuidores para integrar las nuevas clasificaciones al sistema.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-red px-3 py-1.5 text-xs font-semibold text-panel transition-opacity hover:opacity-90">
+                  {importing ? 'Importando…' : 'Seleccionar plantilla resuelta'}
+                  <input
+                    type="file"
+                    accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    disabled={importing}
+                    onChange={(e) => void handleImportClientesChange(e)}
+                  />
+                </label>
+                {importResult && (
+                  <span className="text-xs font-semibold text-green bg-green/10 border border-green/20 px-2.5 py-1 rounded">
+                    {importResult}
+                  </span>
+                )}
+                {importResult && lastFile && (
+                  <button
+                    type="button"
+                    onClick={() => void startPipeline(lastFile)}
+                    className="rounded-md bg-navy px-3 py-1.5 text-xs font-semibold text-panel hover:opacity-90 transition-opacity"
+                  >
+                    Re-procesar archivo crudo ({lastFile.name})
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
