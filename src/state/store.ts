@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import { adapters } from '@/adapters'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import {
@@ -70,6 +72,7 @@ interface StoreState {
   exportManualMaestro: () => Promise<void>
   importDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
   exportUnclassifiedTemplate: () => Promise<void>
+  exportUnclassifiedZip: () => Promise<void>
   importClientesTemplate: (file: File) => Promise<{ added: number; skipped: number }>
   saveThresholds: (fuzzyThreshold: number, fuzzySuggestFloor: number) => Promise<void>
   resetLearned: () => Promise<void>
@@ -315,6 +318,141 @@ export const useStore = create<StoreState>((set, get) => ({
         blob,
         `planilla_clientes_sin_clasificar_${runId}.xlsx`,
         [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+      )
+      set({ exportState: outcome === 'cancelled' ? 'idle' : 'done' })
+    } catch (err) {
+      set({ exportState: 'error', exportError: (err as Error).message })
+    }
+  },
+  exportUnclassifiedZip: async () => {
+    const { runResult, runId } = get()
+    if (!runResult || !runId || !runResult.clientesSinClasificar.length) return
+    set({ exportState: 'running' })
+    try {
+      const byDist = new Map<string, typeof runResult.clientesSinClasificar>()
+      for (const c of runResult.clientesSinClasificar) {
+        const list = byDist.get(c.distribuidor) || []
+        list.push(c)
+        byDist.set(c.distribuidor, list)
+      }
+
+      const zip = new JSZip()
+      const segmentos = get().seeds.segmentos
+
+      for (const [dist, list] of byDist) {
+        const workbook = new ExcelJS.Workbook()
+        const ws1 = workbook.addWorksheet('Clasificación de Tiendas')
+        const ws2 = workbook.addWorksheet('Manual de Segmentos')
+
+        // ── Populating Sheet 2: Manual de Segmentos ──
+        ws2.mergeCells('A1:B1')
+        const titleCell2 = ws2.getCell('A1')
+        titleCell2.value = 'MANUAL DE REFERENCIA DE SEGMENTOS'
+        titleCell2.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+        titleCell2.alignment = { horizontal: 'center', vertical: 'middle' }
+        titleCell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
+        ws2.getRow(1).height = 30
+
+        ws2.getCell('A3').value = 'Segmento (Tipo de Tienda)'
+        ws2.getCell('B3').value = 'Macro Canal'
+        for (const col of ['A3', 'B3']) {
+          const cell = ws2.getCell(col)
+          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } }
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
+          cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        }
+        ws2.getRow(3).height = 20
+
+        let currentRow = 4
+        for (const seg of segmentos) {
+          ws2.getCell(`A${currentRow}`).value = seg.n3
+          ws2.getCell(`B${currentRow}`).value = seg.macroN1
+          ws2.getCell(`A${currentRow}`).font = { name: 'Arial', size: 10 }
+          ws2.getCell(`B${currentRow}`).font = { name: 'Arial', size: 10 }
+          ws2.getCell(`A${currentRow}`).border = { bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } } }
+          ws2.getCell(`B${currentRow}`).border = { bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } } }
+          currentRow++
+        }
+        const lastRowSegmentos = currentRow - 1
+
+        // ── Populating Sheet 1: Clasificación de Tiendas ──
+        ws1.mergeCells('A1:D1')
+        const titleCell1 = ws1.getCell('A1')
+        titleCell1.value = 'HEINZ - CLASIFICACIÓN DE CLIENTES'
+        titleCell1.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+        titleCell1.alignment = { horizontal: 'center', vertical: 'middle' }
+        titleCell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
+        ws1.getRow(1).height = 35
+
+        ws1.mergeCells('A2:D2')
+        const subCell1 = ws1.getCell('A2')
+        subCell1.value = 'Por favor, complete la columna "Tipo de Tienda" seleccionando el segmento correspondiente de la lista desplegable.'
+        subCell1.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF555555' } }
+        subCell1.alignment = { horizontal: 'center', vertical: 'middle' }
+        subCell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF0F2' } }
+        ws1.getRow(2).height = 20
+
+        const headers = ['Distribuidor', 'RIF', 'Razón Social', 'Tipo de Tienda']
+        const cols = ['A4', 'B4', 'C4', 'D4']
+        headers.forEach((h, idx) => {
+          const cell = ws1.getCell(cols[idx])
+          cell.value = h
+          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } }
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
+          cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        })
+        ws1.getRow(4).height = 25
+
+        let rIdx = 5
+        for (const rowData of list) {
+          ws1.getCell(`A${rIdx}`).value = rowData.distribuidor
+          ws1.getCell(`B${rIdx}`).value = rowData.rif
+          ws1.getCell(`C${rIdx}`).value = rowData.razonSocial
+          ws1.getCell(`D${rIdx}`).value = ''
+
+          for (const col of ['A', 'B', 'C', 'D']) {
+            const cell = ws1.getCell(`${col}${rIdx}`)
+            cell.font = { name: 'Arial', size: 10 }
+            cell.border = {
+              bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } },
+              left: { style: 'thin', color: { argb: 'FFE5E5E5' } },
+              right: { style: 'thin', color: { argb: 'FFE5E5E5' } },
+            }
+            if (rIdx % 2 === 0) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFBF7F8' } }
+            }
+          }
+
+          ws1.getCell(`D${rIdx}`).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: [`'Manual de Segmentos'!$A$4:$A$${lastRowSegmentos}`]
+          }
+
+          rIdx++
+        }
+
+        ws1.columns = [
+          { key: 'distribuidor', width: 25 },
+          { key: 'rif', width: 15 },
+          { key: 'razonSocial', width: 40 },
+          { key: 'tipoTienda', width: 30 },
+        ]
+        ws2.columns = [
+          { key: 'segmento', width: 35 },
+          { key: 'macro', width: 35 },
+        ]
+
+        const buffer = await workbook.xlsx.writeBuffer()
+        const safeDistName = dist.replace(/[^a-zA-Z0-9_-]/g, '_')
+        zip.file(`planilla_clientes_sin_clasificar_${safeDistName}.xlsx`, buffer)
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const outcome = await adapters.saveBlob(
+        zipBlob,
+        `planillas_distribuidores_${runId}.zip`,
+        [{ description: 'ZIP Archive', accept: { 'application/zip': ['.zip'] } }]
       )
       set({ exportState: outcome === 'cancelled' ? 'idle' : 'done' })
     } catch (err) {

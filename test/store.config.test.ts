@@ -200,3 +200,50 @@ describe('importClientesTemplate', () => {
     expect(useStore.getState().learned.maestro).toBe(1)
   })
 })
+
+describe('exportUnclassifiedZip', () => {
+  test('creates a ZIP file with separate Excel workbooks per distributor', async () => {
+    useStore.setState({
+      runId: 'test-run-123',
+      runResult: {
+        summary: {
+          fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 2, bytes: 10,
+          schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] },
+          headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
+        },
+        segmento: { MAESTRO: 0, EXACTO: 4000, FUZZY: 0, SIN_CLASIFICAR: 1000 },
+        clasificacionPct: 80,
+        clasificacionCrudoPct: 80,
+        estadoValidoPct: 90,
+        tonTotal: 1000,
+        tonSinClasificar: 100,
+        distribuidores: [],
+        cola: [],
+        maestro: [],
+        maestroTotal: 0,
+        conflictos: 0,
+        recuperadosMaestro: 0,
+        clientesSinClasificar: [
+          { distribuidor: 'DIST_A', rif: 'J-1', razonSocial: 'Cliente A', ton: 10, count: 1 },
+          { distribuidor: 'DIST_B', rif: 'J-2', razonSocial: 'Cliente B', ton: 20, count: 2 },
+        ],
+      }
+    })
+
+    let savedBlob: Blob | undefined
+    let savedName: string | undefined
+    const original = adapters.saveBlob
+    adapters.saveBlob = async (blob, name) => {
+      savedBlob = blob
+      savedName = name
+      return 'saved'
+    }
+    try {
+      await useStore.getState().exportUnclassifiedZip()
+      expect(savedName).toBe('planillas_distribuidores_test-run-123.zip')
+      expect(savedBlob).toBeDefined()
+    } finally {
+      adapters.saveBlob = original
+    }
+  })
+})

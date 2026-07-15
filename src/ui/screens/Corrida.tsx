@@ -14,6 +14,7 @@ export default function Corrida() {
   const exportState = useStore((s) => s.exportState)
   const exportBase = useStore((s) => s.exportBase)
   const exportUnclassifiedTemplate = useStore((s) => s.exportUnclassifiedTemplate)
+  const exportUnclassifiedZip = useStore((s) => s.exportUnclassifiedZip)
 
   return (
     <div className="max-w-[1240px]">
@@ -68,14 +69,24 @@ export default function Corrida() {
                 {exportState === 'running' ? 'Generando…' : 'Descargar base estandarizada'}
               </button>
               {runResult && runResult.clientesSinClasificar && runResult.clientesSinClasificar.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => void exportUnclassifiedTemplate()}
-                  disabled={exportState === 'running'}
-                  className="rounded-md border border-line bg-white text-navy px-4 py-2 text-xs font-semibold hover:bg-line/20 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Descargar plantilla sin clasificar ({runResult.clientesSinClasificar.length})
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void exportUnclassifiedTemplate()}
+                    disabled={exportState === 'running'}
+                    className="rounded-md border border-line bg-white text-navy px-4 py-2 text-xs font-semibold hover:bg-line/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Descargar plantilla consolidada ({runResult.clientesSinClasificar.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void exportUnclassifiedZip()}
+                    disabled={exportState === 'running'}
+                    className="rounded-md border border-line bg-white text-navy px-4 py-2 text-xs font-semibold hover:bg-line/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Descargar plantillas por distribuidor (ZIP)
+                  </button>
+                </>
               )}
               {exportState === 'running' && (
                 <div
