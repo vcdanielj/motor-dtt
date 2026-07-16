@@ -15,29 +15,45 @@ export interface PwaManifestIcon {
 }
 
 export interface PwaManifest {
+  id?: string
   name: string
   short_name: string
   description: string
   theme_color: string
   background_color: string
   display: 'standalone' | 'fullscreen' | 'minimal-ui' | 'browser'
+  scope?: string
   start_url: string
   icons: PwaManifestIcon[]
 }
 
 export const pwaManifest: PwaManifest = {
+  id: '/',
   name: 'Motor DTT · Estandarización',
   short_name: 'Motor DTT',
   description: 'Motor de estandarización de datos DTT — operación local, sin envío de datos.',
   theme_color: '#0F2B5B',
   background_color: '#F4F7FB',
   display: 'standalone',
+  scope: '/',
   start_url: '/',
   icons: [
     {
       src: '/icons/icon.svg',
       sizes: 'any',
       type: 'image/svg+xml',
+      purpose: 'any',
+    },
+    {
+      src: '/icons/icon-192.png',
+      sizes: '192x192',
+      type: 'image/png',
+      purpose: 'any maskable',
+    },
+    {
+      src: '/icons/icon-512.png',
+      sizes: '512x512',
+      type: 'image/png',
       purpose: 'any maskable',
     },
   ],

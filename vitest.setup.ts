@@ -13,3 +13,16 @@ if (typeof (globalThis as { Worker?: unknown }).Worker === 'undefined') {
   }
   ;(globalThis as unknown as { Worker: typeof NoopWorker }).Worker = NoopWorker
 }
+
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as typeof window.matchMedia
+}
