@@ -8,7 +8,11 @@ import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import {
   getLearnedDiccionario, getManualMaestro, putLearnedDiccionario, putManualMaestro,
   getMeta, putMeta, clearLearned,
+  deleteLearnedDiccionario as dbDeleteLearnedDiccionario,
+  deleteManualMaestro as dbDeleteManualMaestro,
 } from '@/storage/db'
+import type { DiccionarioEntry } from '@/contracts/config'
+import type { MaestroEntry } from '@/contracts/maestro'
 import { loadRunConfig } from '@/storage/run-config'
 import { csvDocument } from '@/reports/csv'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
@@ -57,6 +61,8 @@ interface StoreState {
   // Counts of what the analyst has taught the motor so far, persisted in IndexedDB (Sprint 2 ·
   // C1) — populated on init and after any write, shown read-only in Config.
   learned: { diccionario: number; maestro: number }
+  learnedDiccionarioList: DiccionarioEntry[]
+  manualMaestroList: MaestroEntry[]
   // Editable fuzzy thresholds (Sprint 2 · C3): loaded from meta on init, applied to every
   // subsequent pipeline/export run via the worker message.
   thresholds: Thresholds
@@ -76,6 +82,8 @@ interface StoreState {
   importClientesTemplate: (file: File) => Promise<{ added: number; skipped: number }>
   saveThresholds: (fuzzyThreshold: number, fuzzySuggestFloor: number) => Promise<void>
   resetLearned: () => Promise<void>
+  deleteLearnedDiccionario: (variante: string) => Promise<void>
+  deleteManualMaestro: (rif: string) => Promise<void>
 }
 
 // Sprint 2: no config UI yet for the diccionario version — a fixed tag, same spirit as the
@@ -100,6 +108,8 @@ export const useStore = create<StoreState>((set, get) => ({
   exportRows: 0,
   exportError: null,
   learned: { diccionario: 0, maestro: 0 },
+  learnedDiccionarioList: [],
+  manualMaestroList: [],
   thresholds: { fuzzyThreshold: 92, fuzzySuggestFloor: 80 },
   stageStatuses: {},
   startIngest: async (file) => {
@@ -191,11 +201,23 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ exportState: 'error', exportError: (err as Error).message })
     }
   },
-  // Reads persisted counts from IndexedDB (best-effort — [] when unavailable) so Config can show
-  // what's been learned so far. Called on app init and safe to re-call after any storage write.
+  // Reads persisted counts and full arrays from IndexedDB (best-effort — [] when unavailable) so Config can show
+  // what's been learned so far and allow editing. Called on app init and safe to re-call after any storage write.
   refreshLearned: async () => {
     const [diccionario, maestro] = await Promise.all([getLearnedDiccionario(), getManualMaestro()])
-    set({ learned: { diccionario: diccionario.length, maestro: maestro.length } })
+    set({
+      learned: { diccionario: diccionario.length, maestro: maestro.length },
+      learnedDiccionarioList: diccionario,
+      manualMaestroList: maestro,
+    })
+  },
+  deleteLearnedDiccionario: async (variante) => {
+    await dbDeleteLearnedDiccionario(variante)
+    await get().refreshLearned()
+  },
+  deleteManualMaestro: async (rif) => {
+    await dbDeleteManualMaestro(rif)
+    await get().refreshLearned()
   },
   // The analyst classifies a pending cola item (Sprint 2 · C2): CONFLICTO_MAYOR items carry a RIF
   // in valorCrudo and get a manual maestro override; the other tipos carry a raw segment string

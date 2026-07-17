@@ -97,3 +97,18 @@ export async function clearLearned(): Promise<void> {
   await db.clear('diccionario')
   await db.clear('maestro')
 }
+
+/** Deletes a specific learned diccionario entry by variant (normalizing the key first). */
+export async function deleteLearnedDiccionario(variante: string): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  await db.delete('diccionario', normalizeText(variante))
+}
+
+/** Deletes a specific manual maestro classification by RIF (normalizing the key first). */
+export async function deleteManualMaestro(rif: string): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  await db.delete('maestro', normalizeRif(rif))
+}
+

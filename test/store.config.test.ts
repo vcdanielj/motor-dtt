@@ -247,3 +247,38 @@ describe('exportUnclassifiedZip', () => {
     }
   })
 })
+
+describe('deleteLearnedDiccionario and deleteManualMaestro', () => {
+  test('deletes a learned diccionario variant and refreshes the lists', async () => {
+    await putLearnedDiccionario({
+      variante: 'VARIANTE A ELIMINAR', segmentoN3: 'BODEGA', macroN1: 'TRADE TRADICIONAL (UTT)', codigo: 'UTT-02',
+      metodo: 'EXACTO', activa: true,
+    })
+    await useStore.getState().refreshLearned()
+    expect(useStore.getState().learned.diccionario).toBe(1)
+    expect(useStore.getState().learnedDiccionarioList).toHaveLength(1)
+
+    await useStore.getState().deleteLearnedDiccionario('VARIANTE A ELIMINAR')
+
+    expect(useStore.getState().learned.diccionario).toBe(0)
+    expect(useStore.getState().learnedDiccionarioList).toHaveLength(0)
+    expect(await getLearnedDiccionario()).toHaveLength(0)
+  })
+
+  test('deletes a manual maestro RIF and refreshes the lists', async () => {
+    await putManualMaestro({
+      rif: 'J-12345678-9', razonSocial: 'Cliente Test', segmentoN3: 'ABASTO', macroN1: 'TRADE TRADICIONAL (UTT)',
+      metodo: 'MANUAL', confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
+    })
+    await useStore.getState().refreshLearned()
+    expect(useStore.getState().learned.maestro).toBe(1)
+    expect(useStore.getState().manualMaestroList).toHaveLength(1)
+
+    await useStore.getState().deleteManualMaestro('J-12345678-9')
+
+    expect(useStore.getState().learned.maestro).toBe(0)
+    expect(useStore.getState().manualMaestroList).toHaveLength(0)
+    expect(await getManualMaestro()).toHaveLength(0)
+  })
+})
+

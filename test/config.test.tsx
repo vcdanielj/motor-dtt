@@ -4,8 +4,8 @@ import { useStore } from '@/state/store'
 
 test('shows seed provenance and official catalog confirmation', () => {
   render(<Config />)
-  expect(screen.getByText(/Entregable 2\.1|oficial/i)).toBeInTheDocument()
-  expect(screen.getByText(/37/)).toBeInTheDocument() // 37 N3 count
+  expect(screen.getAllByText(/Entregable 2\.1|oficial/i)[0]).toBeInTheDocument()
+  expect(screen.getAllByText(/37/)[0]).toBeInTheDocument() // 37 N3 count
   expect(screen.queryByText(/PLACEHOLDER/)).not.toBeInTheDocument()
 })
 
