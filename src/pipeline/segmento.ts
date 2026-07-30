@@ -49,6 +49,8 @@ export function buildMaestro(entries: MaestroEntry[]): Map<string, MaestroEntry>
   return map
 }
 
+const nonEmpty = (s: string | null | undefined): boolean => s != null && s.trim() !== ''
+
 function sinClasificar(fuzzyScore: number | null): SegmentoResult {
   return {
     segmentoN3: null,
@@ -70,7 +72,11 @@ export function resolveSegmento(
   const rifKey = normalizeRif(input.rif ?? '')
   if (rifKey !== '') {
     const maestroEntry = ctx.maestro.get(rifKey)
-    if (maestroEntry) {
+    // The entry must actually carry a classification: an N3, or at least a macro-canal (a
+    // MACRO-confidence entry is legitimate). Entries can now be estado-only — a distributor filled
+    // in the state but not the store type in the template — and taking this branch for one of
+    // those would flag the row OK with both segmento_n3_std and macro_canal_n1_std empty.
+    if (maestroEntry && (nonEmpty(maestroEntry.segmentoN3) || nonEmpty(maestroEntry.macroN1))) {
       const confianza: ConfianzaSegmento =
         maestroEntry.confianza ?? (maestroEntry.segmentoN3 ? 'N3' : 'MACRO')
       return {

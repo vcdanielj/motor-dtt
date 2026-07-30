@@ -1,5 +1,6 @@
 import { normalizeText } from '@/ingest/normalize'
-import type { ColaItem, ColaTipo } from '@/contracts/cola'
+import { COLA_DOMINIO_POR_TIPO, type ColaItem, type ColaTipo } from '@/contracts/cola'
+import { guardTon } from '@/lib/num'
 import type { ResolvedRow } from './process-row'
 
 interface Group {
@@ -7,16 +8,17 @@ interface Group {
   valorCrudo: string
   registros: number
   ton: number
-  sugerencia: { segmentoN3: string; score: number } | null
+  sugerencia: { valor: string; score: number } | null
 }
 
 export interface ColaAccumulator {
-  addRow(crudo: string, resolved: ResolvedRow, ton: number): void
-  build(maxItems?: number): ColaItem[]
-}
-
-function guardTon(ton: number): number {
-  return Number.isFinite(ton) ? ton : 0
+  /** Accumulate the segmento side of a row (grouped by normalized segmentoCrudo). */
+  addSegmento(crudo: string, resolved: ResolvedRow, ton: number): void
+  /** Accumulate the estado side of a row (grouped by normalized estadoCrudo). */
+  addEstado(crudo: string, resolved: ResolvedRow, ton: number): void
+  /** Top items by TON, capped PER DOMAIN so a long tail of unresolved segments can never crowd
+   *  the unresolved states out of the queue (or vice versa). */
+  build(maxPorDominio?: number): ColaItem[]
 }
 
 // Stable slug from tipo + normalized crudo — deterministic, no randomness, so the same
@@ -30,46 +32,67 @@ export function stableId(tipo: ColaTipo, valorCrudo: string): string {
   return `${tipo.toLowerCase()}-${base || 'sin-valor'}`
 }
 
-/** Pure, streaming accumulator for the review queue (PRD cola). Groups rows by
- *  normalizeText(crudo): a 80–91 fuzzy suggestion band → VARIANTE_NUEVA, an unresolved
- *  non-empty crudo with no suggestion → ALTO_VOLUMEN_SIN_CLASIFICAR. Empty-crudo rows are
- *  excluded (those need the maestro, not the cola). CONFLICTO_MAYOR is not produced here
- *  (pass-1 has no dedup pass). */
+/** Pure, streaming accumulator for the review queue (PRD cola), covering both domains.
+ *
+ *  Segmento: a fuzzy suggestion in the band → VARIANTE_NUEVA; an unresolved non-empty crudo with
+ *  no suggestion → ALTO_VOLUMEN_SIN_CLASIFICAR.
+ *  Estado: same split → ESTADO_VARIANTE_NUEVA / ESTADO_SIN_RESOLVER.
+ *
+ *  Empty-crudo rows are excluded in both domains (those need the maestro, not the cola).
+ *  CONFLICTO_MAYOR is not produced here — it comes from the maestro build. */
 export function createColaAccumulator(): ColaAccumulator {
   const groups = new Map<string, Group>()
 
+  const add = (
+    tipo: ColaTipo,
+    key: string,
+    ton: number,
+    sugerencia: { valor: string; score: number } | null,
+  ) => {
+    const mapKey = `${tipo}::${key}`
+    let g = groups.get(mapKey)
+    if (!g) {
+      // Resolution is memoized by the normalized crudo upstream, so every row in this group
+      // carries the same suggestion — take it from the first row seen.
+      g = { tipo, valorCrudo: key, registros: 0, ton: 0, sugerencia }
+      groups.set(mapKey, g)
+    }
+    g.registros += 1
+    g.ton += guardTon(ton)
+  }
+
   return {
-    addRow(crudo, resolved, ton) {
+    addSegmento(crudo, resolved, ton) {
       const key = normalizeText(crudo)
       if (key === '') return // empty crudo needs the maestro, not the cola
 
-      let tipo: ColaTipo | null = null
-      if (resolved.sugerenciaSegmento) tipo = 'VARIANTE_NUEVA'
-      else if (resolved.flagRegistro === 'SIN_CLASIFICAR') tipo = 'ALTO_VOLUMEN_SIN_CLASIFICAR'
-      if (!tipo) return
-
-      const mapKey = `${tipo}::${key}`
-      let g = groups.get(mapKey)
-      if (!g) {
-        g = {
-          tipo,
-          valorCrudo: key,
-          registros: 0,
-          ton: 0,
-          // Segment resolution is memoized by normalizeText(crudo) upstream, so every row in
-          // this group carries the same suggestion — take it from the first row seen.
-          sugerencia: resolved.sugerenciaSegmento
-            ? { segmentoN3: resolved.sugerenciaSegmento.segmentoN3, score: resolved.sugerenciaSegmento.score }
-            : null,
-        }
-        groups.set(mapKey, g)
+      if (resolved.sugerenciaSegmento) {
+        add('VARIANTE_NUEVA', key, ton, {
+          valor: resolved.sugerenciaSegmento.segmentoN3,
+          score: resolved.sugerenciaSegmento.score,
+        })
+      } else if (resolved.flagRegistro === 'SIN_CLASIFICAR') {
+        add('ALTO_VOLUMEN_SIN_CLASIFICAR', key, ton, null)
       }
-      g.registros += 1
-      g.ton += guardTon(ton)
     },
-    build(maxItems = 200) {
+    addEstado(crudo, resolved, ton) {
+      const key = normalizeText(crudo)
+      if (key === '') return // empty crudo needs the maestro/ciudad, not the cola
+      if (resolved.estadoStd !== null) return // already resolved by some cascade step
+
+      if (resolved.sugerenciaEstado) {
+        add('ESTADO_VARIANTE_NUEVA', key, ton, {
+          valor: resolved.sugerenciaEstado.estadoStd,
+          score: resolved.sugerenciaEstado.score,
+        })
+      } else {
+        add('ESTADO_SIN_RESOLVER', key, ton, null)
+      }
+    },
+    build(maxPorDominio = 200) {
       const items: ColaItem[] = Array.from(groups.values()).map((g) => ({
         id: stableId(g.tipo, g.valorCrudo),
+        dominio: COLA_DOMINIO_POR_TIPO[g.tipo],
         tipo: g.tipo,
         valorCrudo: g.valorCrudo,
         registrosAfectados: g.registros,
@@ -78,7 +101,14 @@ export function createColaAccumulator(): ColaAccumulator {
         resolucion: null,
       }))
       items.sort((a, b) => b.tonAfectadas - a.tonAfectadas)
-      return items.slice(0, maxItems)
+      const kept: ColaItem[] = []
+      const porDominio = { SEGMENTO: 0, ESTADO: 0 }
+      for (const item of items) {
+        if (porDominio[item.dominio] >= maxPorDominio) continue
+        porDominio[item.dominio] += 1
+        kept.push(item)
+      }
+      return kept
     },
   }
 }

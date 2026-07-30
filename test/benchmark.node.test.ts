@@ -116,6 +116,7 @@ describe.skipIf(!RUN)('benchmark: real Sell_out CSV through the resolution engin
               metodoEstado: estR.metodo,
               flagRegistro,
               sugerenciaSegmento: segR.sugerencia,
+              sugerenciaEstado: null,
               valorOriginalSegmento: segCrudo,
               valorOriginalEstado: estCrudo,
             }

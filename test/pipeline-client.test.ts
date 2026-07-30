@@ -8,6 +8,7 @@ const RESULT: PipelineRunResult = {
     headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
   },
   segmento: { MAESTRO: 0, EXACTO: 4000, FUZZY: 500, SIN_CLASIFICAR: 500 },
+  estado: { EXACTO: 0, DICCIONARIO: 0, RIF: 0, CIUDAD: 0, FUZZY: 0, SIN_ESTADO: 0 },
   clasificacionPct: 90,
   clasificacionCrudoPct: 92.4,
   estadoValidoPct: 98.1,
@@ -19,6 +20,7 @@ const RESULT: PipelineRunResult = {
   maestroTotal: 0,
   conflictos: 0,
   recuperadosMaestro: 0,
+  recuperadosEstado: 0,
   clientesSinClasificar: [],
 }
 

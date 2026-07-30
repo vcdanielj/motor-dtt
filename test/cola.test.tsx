@@ -5,16 +5,18 @@ import type { ColaItem } from '@/contracts/cola'
 
 const VARIANTE_ITEM: ColaItem = {
   id: 'test-variante',
+  dominio: 'SEGMENTO',
   tipo: 'VARIANTE_NUEVA',
   valorCrudo: 'CANAL RARO XYZ',
   registrosAfectados: 10,
   tonAfectadas: 1.2,
-  sugerenciaFuzzy: { segmentoN3: 'MINI MARKET', score: 87 },
+  sugerenciaFuzzy: { valor: 'MINI MARKET', score: 87 },
   resolucion: null,
 }
 
 const CONFLICTO_ITEM: ColaItem = {
   id: 'test-conflicto',
+  dominio: 'SEGMENTO',
   tipo: 'CONFLICTO_MAYOR',
   valorCrudo: 'J-12345678-9',
   registrosAfectados: 5,

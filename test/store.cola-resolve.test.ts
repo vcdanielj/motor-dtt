@@ -9,6 +9,7 @@ import type { ColaItem } from '@/contracts/cola'
 
 const VARIANTE_ITEM: ColaItem = {
   id: 'test-variante',
+  dominio: 'SEGMENTO',
   tipo: 'VARIANTE_NUEVA',
   valorCrudo: 'CANAL RARO XYZ',
   registrosAfectados: 10,
@@ -19,6 +20,7 @@ const VARIANTE_ITEM: ColaItem = {
 
 const ALTO_VOLUMEN_ITEM: ColaItem = {
   id: 'test-alto-volumen',
+  dominio: 'SEGMENTO',
   tipo: 'ALTO_VOLUMEN_SIN_CLASIFICAR',
   valorCrudo: 'MAYORISTA SIN NOMBRE',
   registrosAfectados: 20,
@@ -29,6 +31,7 @@ const ALTO_VOLUMEN_ITEM: ColaItem = {
 
 const CONFLICTO_ITEM: ColaItem = {
   id: 'test-conflicto',
+  dominio: 'SEGMENTO',
   tipo: 'CONFLICTO_MAYOR',
   valorCrudo: 'J-12345678-9',
   registrosAfectados: 5,

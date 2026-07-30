@@ -1,4 +1,4 @@
-import type { MethodTally } from '@/contracts/pipeline'
+import type { EstadoTally, MethodTally } from '@/contracts/pipeline'
 import type { MaestroEntry } from '@/contracts/maestro'
 
 /** Per-RIF tally of rows that stayed SIN_CLASIFICAR during the streaming pass, kept only for
@@ -65,5 +65,43 @@ export function applyMaestroRecovery(input: MaestroRecoveryInput): MaestroRecove
     tonSinClasificar,
     recuperados,
     recuperadosPorDist,
+  }
+}
+
+export interface EstadoRecoveryInput {
+  estado: EstadoTally
+  /** rifKey -> number of rows that ended SIN_ESTADO for that client during the stream. */
+  sinEstadoPorRif: Map<string, number>
+  /** rifKey -> entry, from MaestroBuilder.build(). */
+  maestro: Map<string, MaestroEntry>
+}
+
+export interface EstadoRecoveryResult {
+  estado: EstadoTally      // new object: SIN_ESTADO reduced, RIF increased
+  recuperados: number      // total rows whose state the maestro recovered this run
+}
+
+/** The estado twin of applyMaestroRecovery: a row whose state never resolved during the stream but
+ *  whose RIF turned out to have a habitual state in the maestro (because OTHER rows for that same
+ *  client resolved) gets reclassified SIN_ESTADO -> RIF.
+ *
+ *  The pipeline pass builds the maestro from the same stream it is resolving, so it cannot apply
+ *  the RIF step inline; the export pass CAN (it re-streams with the finished maestro) and does. In
+ *  other words this function makes the run's reported numbers match what the exported file will
+ *  actually contain. Pure and side-effect free. */
+export function applyEstadoRecovery(input: EstadoRecoveryInput): EstadoRecoveryResult {
+  let recuperados = 0
+  for (const [rifKey, count] of input.sinEstadoPorRif) {
+    const entry = input.maestro.get(rifKey)
+    if (entry?.estadoHabitual) recuperados += count
+  }
+
+  return {
+    estado: {
+      ...input.estado,
+      SIN_ESTADO: input.estado.SIN_ESTADO - recuperados,
+      RIF: input.estado.RIF + recuperados,
+    },
+    recuperados,
   }
 }

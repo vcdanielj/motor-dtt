@@ -53,7 +53,7 @@ export function observeExportRow(
   const segR = resolveSegmento({ rif: null, crudo: segCrudo }, segSeed)
   const estR = estSeed
     ? resolveEstado({ rif, ciudad, estadoCrudo: estCrudo }, estSeed)
-    : { estadoStd: null, metodo: null, flag: 'SIN_ESTADO' as const }
+    : { estadoStd: null }
 
   if (segR.metodo === 'EXACTO' || segR.metodo === 'FUZZY') {
     builder.observe({

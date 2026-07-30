@@ -115,13 +115,13 @@ describe('resetLearned', () => {
       confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
     await useStore.getState().refreshLearned()
-    expect(useStore.getState().learned).toEqual({ diccionario: 1, maestro: 1 })
+    expect(useStore.getState().learned).toEqual({ diccionario: 1, estadoDiccionario: 0, maestro: 1 })
 
     await useStore.getState().resetLearned()
 
     expect(await getLearnedDiccionario()).toEqual([])
     expect(await getManualMaestro()).toEqual([])
-    expect(useStore.getState().learned).toEqual({ diccionario: 0, maestro: 0 })
+    expect(useStore.getState().learned).toEqual({ diccionario: 0, estadoDiccionario: 0, maestro: 0 })
   })
 })
 
@@ -212,6 +212,7 @@ describe('exportUnclassifiedZip', () => {
           headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
         },
         segmento: { MAESTRO: 0, EXACTO: 4000, FUZZY: 0, SIN_CLASIFICAR: 1000 },
+        estado: { EXACTO: 0, DICCIONARIO: 0, RIF: 0, CIUDAD: 0, FUZZY: 0, SIN_ESTADO: 0 },
         clasificacionPct: 80,
         clasificacionCrudoPct: 80,
         estadoValidoPct: 90,
@@ -223,9 +224,10 @@ describe('exportUnclassifiedZip', () => {
         maestroTotal: 0,
         conflictos: 0,
         recuperadosMaestro: 0,
+        recuperadosEstado: 0,
         clientesSinClasificar: [
-          { distribuidor: 'DIST_A', rif: 'J-1', razonSocial: 'Cliente A', ton: 10, count: 1 },
-          { distribuidor: 'DIST_B', rif: 'J-2', razonSocial: 'Cliente B', ton: 20, count: 2 },
+          { distribuidor: 'DIST_A', rif: 'J-1', razonSocial: 'Cliente A', ton: 10, count: 1, faltaSegmento: true, faltaEstado: false, segmentoActual: '', estadoActual: '' },
+          { distribuidor: 'DIST_B', rif: 'J-2', razonSocial: 'Cliente B', ton: 20, count: 2, faltaSegmento: true, faltaEstado: false, segmentoActual: '', estadoActual: '' },
         ],
       }
     })

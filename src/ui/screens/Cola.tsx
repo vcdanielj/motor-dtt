@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '@/state/store'
-import type { ColaTipo } from '@/contracts/cola'
+import type { ColaDominio, ColaTipo } from '@/contracts/cola'
 import type { SegmentoSeed } from '@/contracts/config'
 import Badge, { type BadgeVariant } from '@/ui/components/Badge'
 import Card from '@/ui/components/Card'
@@ -12,20 +12,32 @@ const TIPO_LABEL: Record<ColaTipo, string> = {
   VARIANTE_NUEVA: 'Variante nueva',
   CONFLICTO_MAYOR: 'Conflicto mayor',
   ALTO_VOLUMEN_SIN_CLASIFICAR: 'Alto volumen sin clasificar',
+  ESTADO_VARIANTE_NUEVA: 'Estado · variante nueva',
+  ESTADO_SIN_RESOLVER: 'Estado sin resolver',
 }
 
 const TIPO_VARIANT: Record<ColaTipo, BadgeVariant> = {
   VARIANTE_NUEVA: 'amber',
   CONFLICTO_MAYOR: 'red',
   ALTO_VOLUMEN_SIN_CLASIFICAR: 'gold',
+  ESTADO_VARIANTE_NUEVA: 'amber',
+  ESTADO_SIN_RESOLVER: 'gold',
 }
 
-// CONFLICTO_MAYOR carries a RIF in valorCrudo (resolved into the maestro); the other tipos carry
-// a raw segment string (resolved into the diccionario) — the copy reflects which one applies.
+// CONFLICTO_MAYOR carries a RIF in valorCrudo (resolved into the maestro); the segmento tipos
+// carry a raw segment string and the estado tipos a raw state string (each resolved into its own
+// diccionario) — the copy reflects which one applies.
 const TIPO_PROMPT: Record<ColaTipo, string> = {
   VARIANTE_NUEVA: 'Mapear esta variante a un segmento',
   CONFLICTO_MAYOR: 'Asignar segmento definitivo al cliente (RIF)',
   ALTO_VOLUMEN_SIN_CLASIFICAR: 'Mapear esta variante a un segmento',
+  ESTADO_VARIANTE_NUEVA: 'Mapear esta variante a un estado',
+  ESTADO_SIN_RESOLVER: 'Mapear esta variante a un estado',
+}
+
+const DOMINIO_LABEL: Record<ColaDominio, string> = {
+  SEGMENTO: 'Segmento',
+  ESTADO: 'Estado',
 }
 
 // Groups the 37 N3 by macroN1, preserving first-seen order, for the <optgroup> select below.
@@ -42,21 +54,37 @@ function groupByMacro(segmentos: SegmentoSeed[]): Array<{ macro: string; items: 
   return order.map((macro) => ({ macro, items: byMacro.get(macro)! }))
 }
 
+type Filtro = 'TODOS' | ColaDominio
+
 export default function Cola() {
   const cola = useStore((s) => s.cola)
   const segmentos = useStore((s) => s.seeds.segmentos)
+  const estados = useStore((s) => s.seeds.estados)
   const resolveColaItem = useStore((s) => s.resolveColaItem)
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [toast, setToast] = useState<string | null>(null)
+  const [filtro, setFiltro] = useState<Filtro>('TODOS')
 
   const groups = useMemo(() => groupByMacro(segmentos), [segmentos])
+  const conteos = useMemo(
+    () => ({
+      TODOS: cola.length,
+      SEGMENTO: cola.filter((c) => c.dominio === 'SEGMENTO').length,
+      ESTADO: cola.filter((c) => c.dominio === 'ESTADO').length,
+    }),
+    [cola],
+  )
+  const visibles = useMemo(
+    () => (filtro === 'TODOS' ? cola : cola.filter((c) => c.dominio === filtro)),
+    [cola, filtro],
+  )
 
-  const handleSave = async (itemId: string, valorCrudo: string, chosenN3: string) => {
+  const handleSave = async (itemId: string, valorCrudo: string, chosen: string) => {
     setSaving((s) => ({ ...s, [itemId]: true }))
     try {
-      await resolveColaItem(itemId, chosenN3)
-      setToast(`«${valorCrudo}» → ${chosenN3} · guardado; se aplicará en la próxima corrida.`)
+      await resolveColaItem(itemId, chosen)
+      setToast(`«${valorCrudo}» → ${chosen} · guardado; se aplicará en la próxima corrida.`)
       window.setTimeout(() => setToast(null), 3600)
     } finally {
       setSaving((s) => ({ ...s, [itemId]: false }))
@@ -67,9 +95,25 @@ export default function Cola() {
     <div className="max-w-[1240px]">
       <h1 className="text-lg font-bold text-navy">Cola de revisión</h1>
       <p className="mt-1 text-xs text-slate">
-        Cada resolución actualiza el diccionario o el maestro — se aplica retroactivamente a todo el histórico en la
-        próxima corrida (R3).
+        Cada resolución actualiza el diccionario de segmentos, el de estados o el maestro — se aplica retroactivamente a
+        todo el histórico en la próxima corrida (R3).
       </p>
+
+      <div className="mt-3 flex flex-wrap gap-1">
+        {(['TODOS', 'SEGMENTO', 'ESTADO'] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFiltro(f)}
+            aria-pressed={filtro === f}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+              filtro === f ? 'bg-navy text-panel' : 'text-slate hover:bg-bg'
+            }`}
+          >
+            {f === 'TODOS' ? 'Todos' : DOMINIO_LABEL[f]} ({conteos[f]})
+          </button>
+        ))}
+      </div>
 
       <div className="mt-3 rounded-md border border-green/60 bg-green/10 px-4 py-2 text-xs text-ink">
         Las clasificaciones se guardan localmente y se aplican en la próxima corrida. Se guardan en este navegador
@@ -83,10 +127,11 @@ export default function Cola() {
       ) : null}
 
       <div className="mt-4 flex flex-col gap-3">
-        {cola.map((item) => {
+        {visibles.map((item) => {
           const chosen = selections[item.id] ?? ''
           const isResolved = item.resolucion !== null
           const isSaving = saving[item.id] === true
+          const esEstado = item.dominio === 'ESTADO'
 
           return (
             <Card key={item.id} className="p-4">
@@ -111,10 +156,10 @@ export default function Cola() {
                   {item.sugerenciaFuzzy ? (
                     <button
                       type="button"
-                      onClick={() => setSelections((s) => ({ ...s, [item.id]: item.sugerenciaFuzzy!.segmentoN3 }))}
+                      onClick={() => setSelections((s) => ({ ...s, [item.id]: item.sugerenciaFuzzy!.valor }))}
                       className="mt-2 inline-flex items-center gap-1 rounded bg-green/10 px-2 py-1 font-mono text-xs text-green hover:bg-green/20"
                     >
-                      Usar sugerencia: {item.sugerenciaFuzzy.segmentoN3} ({item.sugerenciaFuzzy.score})
+                      Usar sugerencia: {item.sugerenciaFuzzy.valor} ({item.sugerenciaFuzzy.score})
                     </button>
                   ) : (
                     <div className="mt-2 text-xs text-slate-2">sin sugerencia fuzzy</div>
@@ -128,15 +173,21 @@ export default function Cola() {
                       className="w-full max-w-md rounded border border-line bg-white px-3 py-1.5 text-xs outline-none focus:border-navy"
                     >
                       <option value="">Clasificar como…</option>
-                      {groups.map((g) => (
-                        <optgroup key={g.macro} label={g.macro}>
-                          {g.items.map((seg) => (
-                            <option key={seg.n3} value={seg.n3}>
-                              {seg.n3}
+                      {esEstado
+                        ? estados.map((e) => (
+                            <option key={e} value={e}>
+                              {e}
                             </option>
+                          ))
+                        : groups.map((g) => (
+                            <optgroup key={g.macro} label={g.macro}>
+                              {g.items.map((seg) => (
+                                <option key={seg.n3} value={seg.n3}>
+                                  {seg.n3}
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
-                        </optgroup>
-                      ))}
                     </select>
                     <button
                       type="button"
@@ -153,8 +204,12 @@ export default function Cola() {
           )
         })}
 
-        {cola.length === 0 ? (
-          <Card className="p-8 text-center text-xs text-slate">No hay elementos en la cola de revisión.</Card>
+        {visibles.length === 0 ? (
+          <Card className="p-8 text-center text-xs text-slate">
+            {cola.length === 0
+              ? 'No hay elementos en la cola de revisión.'
+              : `No hay elementos de ${DOMINIO_LABEL[filtro as ColaDominio].toLowerCase()} en la cola.`}
+          </Card>
         ) : null}
       </div>
     </div>
