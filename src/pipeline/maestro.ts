@@ -92,7 +92,27 @@ export class MaestroBuilder {
 
     for (const [key, agg] of this.rifs) {
       const segEntries = [...agg.segmentos.entries()]
-      if (segEntries.length === 0) continue
+
+      // Estado-only client: no row ever resolved a segment, but at least one resolved a state.
+      // It still earns a maestro entry so the estado cascade's RIF step can recover the client's
+      // other rows. segmentoN3/macroN1 stay null and resolveSegmento skips such entries, so this
+      // can never masquerade as a classification.
+      if (segEntries.length === 0) {
+        const estadoHabitual = modaEstado(agg.estados)
+        if (estadoHabitual === null) continue
+        maestro.set(key, {
+          rif: agg.rawRif,
+          razonSocial: agg.razonSocial,
+          segmentoN3: null,
+          macroN1: null,
+          metodo: null,
+          confianza: null,
+          estadoHabitual,
+          fechaClasificacion: null,
+          reglaCanonica: null,
+        })
+        continue
+      }
 
       // A MANUAL observation IS the human resolving the conflict, so it overrides cross-macro
       // detection: only RIFs with no manual observation can raise CONFLICTO_MAYOR.
@@ -111,12 +131,7 @@ export class MaestroBuilder {
       const [winnerSegmento, reglaCanonica] = pickWinner(segEntries)
       const winnerMacro = agg.segmentos.get(winnerSegmento)?.macroN1 ?? macros[0]
 
-      // Determine state moda (most frequent state)
-      let estadoHabitual: string | null = null
-      if (agg.estados.size > 0) {
-        const sortedEstados = [...agg.estados.entries()].sort((a, b) => b[1] - a[1])
-        estadoHabitual = sortedEstados[0][0]
-      }
+      const estadoHabitual = modaEstado(agg.estados)
 
       maestro.set(key, {
         rif: agg.rawRif,
@@ -133,6 +148,20 @@ export class MaestroBuilder {
 
     return { maestro, conflictos }
   }
+}
+
+/** The client's habitual estado: the most-observed one, ties broken alphabetically so the result
+ *  does not depend on row order. Null when no row ever resolved a state for this client. */
+function modaEstado(estados: Map<string, number>): string | null {
+  let mejor: string | null = null
+  let mejorCount = 0
+  for (const [estado, count] of estados) {
+    if (count > mejorCount || (count === mejorCount && mejor !== null && estado < mejor)) {
+      mejor = estado
+      mejorCount = count
+    }
+  }
+  return mejor
 }
 
 type SegEntry = [string, SegmentoAggregate]

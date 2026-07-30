@@ -46,3 +46,30 @@ test('real Sell_out header row: does NOT mis-map estado to "VENDEDOR HEINZ"', ()
   expect(m.ciudad).toBe('Ciudad')
   expect(m.passthrough).toEqual(expect.arrayContaining(['CAJAS', 'TON', 'UNIDADES', 'FECHA']))
 })
+
+test('a status column that merely contains the word ESTADO does not shadow the real one', () => {
+  // Regression: 'ESTADO DEL PEDIDO' matched the ESTADO needle and, since the first match per
+  // field wins, the actual 'Estado' column was never mapped — every row came out SIN_ESTADO.
+  const m = detectSchema(['RIF', 'Estado del Pedido', 'Canal', 'Estado', 'Ciudad'])
+  expect(m.estadoCrudo).toBe('Estado')
+  expect(m.unmapped).toContain('Estado del Pedido')
+})
+
+test.each(['Estado Civil', 'Estado del Cliente', 'Estatus', 'Estado de Cuenta'])(
+  '%s is not treated as the state column',
+  (header) => {
+    expect(detectSchema(['RIF', header]).estadoCrudo).toBeNull()
+  },
+)
+
+test('ciudad also maps MUNICIPIO, LOCALIDAD and PARROQUIA when no CIUDAD column exists', () => {
+  expect(detectSchema(['RIF', 'Municipio']).ciudad).toBe('Municipio')
+  expect(detectSchema(['RIF', 'Localidad']).ciudad).toBe('Localidad')
+  expect(detectSchema(['RIF', 'Parroquia']).ciudad).toBe('Parroquia')
+})
+
+test('segmento also maps GIRO, RUBRO and SUBCANAL', () => {
+  expect(detectSchema(['RIF', 'Giro']).segmentoCrudo).toBe('Giro')
+  expect(detectSchema(['RIF', 'Rubro']).segmentoCrudo).toBe('Rubro')
+  expect(detectSchema(['RIF', 'Subcanal']).segmentoCrudo).toBe('Subcanal')
+})

@@ -12,6 +12,7 @@ function row(overrides: Partial<ResolvedRow> = {}): ResolvedRow {
     metodoEstado: 'EXACTO',
     flagRegistro: 'OK',
     sugerenciaSegmento: null,
+    sugerenciaEstado: null,
     valorOriginalSegmento: 'Bodegas',
     valorOriginalEstado: 'Zulia',
     ...overrides,
@@ -99,6 +100,8 @@ describe('MetricsAccumulator — per-distributor tallies', () => {
       ton: 0,
       tonSinClasificar: 0,
       metodo: { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 },
+    estadoExactoCrudo: 0,
+    metodoEstado: { EXACTO: 0, DICCIONARIO: 0, RIF: 0, CIUDAD: 0, FUZZY: 0, SIN_ESTADO: 0 },
     }
     expect(scdcCrudoPct(empty)).toBe(0)
     expect(scdcPostPct(empty)).toBe(0)

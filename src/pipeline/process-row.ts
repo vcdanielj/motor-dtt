@@ -20,12 +20,16 @@ export interface ResolvedRow {
   metodoEstado: MetodoEstado
   flagRegistro: FlagRegistro // see precedence below
   sugerenciaSegmento: { segmentoN3: string; macroN1: string; score: number } | null
+  sugerenciaEstado: { estadoStd: string; score: number } | null
   valorOriginalSegmento: string // raw segmentoCrudo (unaltered, '' if null)
   valorOriginalEstado: string // raw estadoCrudo (unaltered, '' if null)
 }
 
 /** Resolve one schema-mapped row through the segmento + estado cascades and combine
- *  into a single ResolvedRow (PRD §7.3). Pure, never throws. */
+ *  into a single ResolvedRow (PRD §7.3). Pure, never throws.
+ *
+ *  This is the ONE place row resolution happens — the streaming pipeline pass and the export pass
+ *  both call it, so the two can never drift apart. */
 export function processRow(fields: RowFields, seg: SegmentoContext, est: EstadoContext): ResolvedRow {
   const segResult = resolveSegmento({ rif: fields.rif, crudo: fields.segmentoCrudo }, seg)
   const estResult = resolveEstado(
@@ -51,6 +55,7 @@ export function processRow(fields: RowFields, seg: SegmentoContext, est: EstadoC
     metodoEstado: estResult.metodo,
     flagRegistro,
     sugerenciaSegmento: segResult.sugerencia,
+    sugerenciaEstado: estResult.sugerencia,
     valorOriginalSegmento: fields.segmentoCrudo ?? '',
     valorOriginalEstado: fields.estadoCrudo ?? '',
   }

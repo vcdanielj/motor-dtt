@@ -1,19 +1,21 @@
 import type { ColaItem } from '@/contracts/cola'
 
-// Representative queue items covering the three ColaTipo values, transcribed from
+// Representative queue items covering every ColaTipo across both domains, transcribed from
 // the prototype's trzPool / conflict-detection fixtures.
 export const MOCK_COLA: ColaItem[] = [
   {
     id: 'c0',
+    dominio: 'SEGMENTO',
     tipo: 'VARIANTE_NUEVA',
     valorCrudo: 'SUPER. MINIMARTS',
     registrosAfectados: 214,
     tonAfectadas: 12.6,
-    sugerenciaFuzzy: { segmentoN3: 'MINI MARKET', score: 87 },
+    sugerenciaFuzzy: { valor: 'MINI MARKET', score: 87 },
     resolucion: null,
   },
   {
     id: 'c1',
+    dominio: 'SEGMENTO',
     tipo: 'CONFLICTO_MAYOR',
     valorCrudo: 'ABASTOS / BODEGAS',
     registrosAfectados: 96,
@@ -23,6 +25,7 @@ export const MOCK_COLA: ColaItem[] = [
   },
   {
     id: 'c2',
+    dominio: 'SEGMENTO',
     tipo: 'ALTO_VOLUMEN_SIN_CLASIFICAR',
     valorCrudo: 'MAYORISTA S/N',
     registrosAfectados: 1840,
@@ -32,11 +35,32 @@ export const MOCK_COLA: ColaItem[] = [
   },
   {
     id: 'c3',
+    dominio: 'SEGMENTO',
     tipo: 'VARIANTE_NUEVA',
     valorCrudo: 'PANADERIA-PASTELERIA',
     registrosAfectados: 58,
     tonAfectadas: 2.1,
-    sugerenciaFuzzy: { segmentoN3: 'PANADERIA', score: 82 },
+    sugerenciaFuzzy: { valor: 'PANADERIA', score: 82 },
+    resolucion: null,
+  },
+  {
+    id: 'c4',
+    dominio: 'ESTADO',
+    tipo: 'ESTADO_VARIANTE_NUEVA',
+    valorCrudo: 'NVA. ESPARTAA',
+    registrosAfectados: 312,
+    tonAfectadas: 18.4,
+    sugerenciaFuzzy: { valor: 'NUEVA ESPARTA', score: 88 },
+    resolucion: null,
+  },
+  {
+    id: 'c5',
+    dominio: 'ESTADO',
+    tipo: 'ESTADO_SIN_RESOLVER',
+    valorCrudo: 'ZONA CENTRAL',
+    registrosAfectados: 774,
+    tonAfectadas: 61.2,
+    sugerenciaFuzzy: null,
     resolucion: null,
   },
 ]

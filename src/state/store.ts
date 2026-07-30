@@ -1,20 +1,25 @@
 import { create } from 'zustand'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
 import { adapters } from '@/adapters'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import {
-  getLearnedDiccionario, getManualMaestro, putLearnedDiccionario, putManualMaestro,
+  getLearnedDiccionario, getLearnedEstados, getManualMaestro,
+  putLearnedDiccionario, putLearnedEstado, putManualMaestro,
   getMeta, putMeta, clearLearned,
   deleteLearnedDiccionario as dbDeleteLearnedDiccionario,
+  deleteLearnedEstado as dbDeleteLearnedEstado,
   deleteManualMaestro as dbDeleteManualMaestro,
 } from '@/storage/db'
-import type { DiccionarioEntry } from '@/contracts/config'
+import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 import { loadRunConfig } from '@/storage/run-config'
 import { csvDocument } from '@/reports/csv'
+import {
+  buildClientesWorkbook, etiquetaFalta, matchEstado, matchSegmento, parsePlantillaClientes,
+  HOJA_CLIENTES, TEMPLATE_HEADERS, type FilaPlantilla,
+} from '@/reports/plantilla-clientes'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
 export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'config' | 'manual'
@@ -60,8 +65,9 @@ interface StoreState {
   exportError: string | null
   // Counts of what the analyst has taught the motor so far, persisted in IndexedDB (Sprint 2 ·
   // C1) — populated on init and after any write, shown read-only in Config.
-  learned: { diccionario: number; maestro: number }
+  learned: { diccionario: number; estadoDiccionario: number; maestro: number }
   learnedDiccionarioList: DiccionarioEntry[]
+  learnedEstadoList: EstadoDiccionarioEntry[]
   manualMaestroList: MaestroEntry[]
   // Editable fuzzy thresholds (Sprint 2 · C3): loaded from meta on init, applied to every
   // subsequent pipeline/export run via the worker message.
@@ -75,14 +81,17 @@ interface StoreState {
   refreshLearned: () => Promise<void>
   resolveColaItem: (id: string, segmentoN3: string) => Promise<void>
   exportLearnedDiccionario: () => Promise<void>
+  exportLearnedEstados: () => Promise<void>
   exportManualMaestro: () => Promise<void>
   importDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
+  importEstadoDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
   exportUnclassifiedTemplate: () => Promise<void>
   exportUnclassifiedZip: () => Promise<void>
   importClientesTemplate: (file: File) => Promise<{ added: number; skipped: number }>
   saveThresholds: (fuzzyThreshold: number, fuzzySuggestFloor: number) => Promise<void>
   resetLearned: () => Promise<void>
   deleteLearnedDiccionario: (variante: string) => Promise<void>
+  deleteLearnedEstado: (variante: string) => Promise<void>
   deleteManualMaestro: (rif: string) => Promise<void>
 }
 
@@ -107,8 +116,9 @@ export const useStore = create<StoreState>((set, get) => ({
   exportState: 'idle',
   exportRows: 0,
   exportError: null,
-  learned: { diccionario: 0, maestro: 0 },
+  learned: { diccionario: 0, estadoDiccionario: 0, maestro: 0 },
   learnedDiccionarioList: [],
+  learnedEstadoList: [],
   manualMaestroList: [],
   thresholds: { fuzzyThreshold: 92, fuzzySuggestFloor: 80 },
   stageStatuses: {},
@@ -204,10 +214,17 @@ export const useStore = create<StoreState>((set, get) => ({
   // Reads persisted counts and full arrays from IndexedDB (best-effort — [] when unavailable) so Config can show
   // what's been learned so far and allow editing. Called on app init and safe to re-call after any storage write.
   refreshLearned: async () => {
-    const [diccionario, maestro] = await Promise.all([getLearnedDiccionario(), getManualMaestro()])
+    const [diccionario, estadoDiccionario, maestro] = await Promise.all([
+      getLearnedDiccionario(), getLearnedEstados(), getManualMaestro(),
+    ])
     set({
-      learned: { diccionario: diccionario.length, maestro: maestro.length },
+      learned: {
+        diccionario: diccionario.length,
+        estadoDiccionario: estadoDiccionario.length,
+        maestro: maestro.length,
+      },
       learnedDiccionarioList: diccionario,
+      learnedEstadoList: estadoDiccionario,
       manualMaestroList: maestro,
     })
   },
@@ -215,28 +232,41 @@ export const useStore = create<StoreState>((set, get) => ({
     await dbDeleteLearnedDiccionario(variante)
     await get().refreshLearned()
   },
+  deleteLearnedEstado: async (variante) => {
+    await dbDeleteLearnedEstado(variante)
+    await get().refreshLearned()
+  },
   deleteManualMaestro: async (rif) => {
     await dbDeleteManualMaestro(rif)
     await get().refreshLearned()
   },
-  // The analyst classifies a pending cola item (Sprint 2 · C2): CONFLICTO_MAYOR items carry a RIF
-  // in valorCrudo and get a manual maestro override; the other tipos carry a raw segment string
-  // and get a learned diccionario entry. Both feed the NEXT corrida via loadRunConfig. Never
-  // throws to the UI — a storage hiccup is swallowed (putters already no-op without IndexedDB).
-  resolveColaItem: async (id, segmentoN3) => {
+  // The analyst classifies a pending cola item (Sprint 2 · C2). Three destinations, picked by the
+  // item's dominio + tipo:
+  //   SEGMENTO + CONFLICTO_MAYOR → manual maestro override (valorCrudo is a RIF)
+  //   SEGMENTO + otro            → learned segment diccionario (valorCrudo is a raw segment)
+  //   ESTADO                     → learned estado diccionario (valorCrudo is a raw state)
+  // All three feed the NEXT corrida via loadRunConfig. Never throws to the UI — a storage hiccup
+  // is swallowed (putters already no-op without IndexedDB).
+  resolveColaItem: async (id, valor) => {
     const { cola, seeds } = get()
     const item = cola.find((c) => c.id === id)
     if (!item) return
-    const segmento = seeds.segmentos.find((s) => s.n3 === segmentoN3)
-    if (!segmento) return // shouldn't happen — options come from the catalog
+
+    // Validate against the catalog for the item's domain — never trust an arbitrary string.
+    const segmento = item.dominio === 'SEGMENTO' ? seeds.segmentos.find((s) => s.n3 === valor) : null
+    const estado = item.dominio === 'ESTADO' ? seeds.estados.find((e) => e === valor) : null
+    if (item.dominio === 'SEGMENTO' && !segmento) return
+    if (item.dominio === 'ESTADO' && !estado) return
 
     try {
-      if (item.tipo === 'CONFLICTO_MAYOR') {
+      if (item.dominio === 'ESTADO') {
+        await putLearnedEstado({ variante: item.valorCrudo, estadoStd: estado!, activa: true })
+      } else if (item.tipo === 'CONFLICTO_MAYOR') {
         await putManualMaestro({
           rif: item.valorCrudo,
           razonSocial: null,
-          segmentoN3,
-          macroN1: segmento.macroN1,
+          segmentoN3: valor,
+          macroN1: segmento!.macroN1,
           metodo: 'MANUAL',
           confianza: 'N3',
           estadoHabitual: null,
@@ -246,9 +276,9 @@ export const useStore = create<StoreState>((set, get) => ({
       } else {
         await putLearnedDiccionario({
           variante: item.valorCrudo,
-          segmentoN3,
-          macroN1: segmento.macroN1,
-          codigo: segmento.codigo,
+          segmentoN3: valor,
+          macroN1: segmento!.macroN1,
+          codigo: segmento!.codigo,
           metodo: 'EXACTO',
           activa: true,
         })
@@ -259,7 +289,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     set((s) => ({
-      cola: s.cola.map((c) => (c.id === id ? { ...c, resolucion: segmentoN3 } : c)),
+      cola: s.cola.map((c) => (c.id === id ? { ...c, resolucion: valor } : c)),
     }))
   },
   // Downloads everything the analyst has taught the diccionario so far as a CSV — a local
@@ -272,6 +302,15 @@ export const useStore = create<StoreState>((set, get) => ({
     ])
     const blob = new Blob([doc], { type: 'text/csv;charset=utf-8;' })
     await adapters.saveBlob(blob, 'diccionario_aprendido.csv')
+  },
+  exportLearnedEstados: async () => {
+    const learned = await getLearnedEstados()
+    const doc = csvDocument([
+      ['variante', 'estado_std'],
+      ...learned.map((e) => [e.variante, e.estadoStd]),
+    ])
+    const blob = new Blob([doc], { type: 'text/csv;charset=utf-8;' })
+    await adapters.saveBlob(blob, 'diccionario_estados_aprendido.csv')
   },
   exportManualMaestro: async () => {
     const maestro = await getManualMaestro()
@@ -318,17 +357,54 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().refreshLearned()
     return { added, skipped }
   },
+  // The estado twin of importDiccionarioCsv. Accepts `variante` + `estado_std`/`estadoStd`
+  // headers, matched case-insensitively; each row's state must resolve exactly against the 24-
+  // estado catalog, so an unknown or misspelled state is skipped rather than silently misfiled.
+  // Never throws to the UI: a malformed file just yields { added: 0, skipped: N }.
+  importEstadoDiccionarioCsv: async (file) => {
+    const text = await file.text()
+    const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true })
+    const fields = parsed.meta.fields ?? []
+    const normHeader = (h: string) => h.trim().toLowerCase()
+    const varianteKey = fields.find((f) => normHeader(f) === 'variante')
+    const estadoKey = fields.find(
+      (f) => normHeader(f) === 'estado_std' || normHeader(f) === 'estadostd' || normHeader(f) === 'estado',
+    )
+
+    let added = 0
+    let skipped = 0
+    if (varianteKey && estadoKey) {
+      const estados = get().seeds.estados
+      for (const row of parsed.data) {
+        const variante = (row[varianteKey] ?? '').trim()
+        const crudo = normalizeText((row[estadoKey] ?? '').trim())
+        const estadoStd = estados.find((e) => normalizeText(e) === crudo)
+        if (!variante || !estadoStd) { skipped++; continue }
+        await putLearnedEstado({ variante, estadoStd, activa: true })
+        added++
+      }
+    } else {
+      skipped = parsed.data.length
+    }
+
+    await get().refreshLearned()
+    return { added, skipped }
+  },
   exportUnclassifiedTemplate: async () => {
     const { runResult, runId } = get()
     if (!runResult || !runId || !runResult.clientesSinClasificar.length) return
     set({ exportState: 'running' })
     try {
-      const headers = ['Distribuidor', 'RIF', 'Razón Social', 'Tipo de Tienda']
+      // Flat, unstyled variant of the same 6 columns the ZIP template uses, so both round-trip
+      // through the one parser in reports/plantilla-clientes.
+      const headers = [...TEMPLATE_HEADERS]
       const rows = runResult.clientesSinClasificar.map((c) => [
         c.distribuidor,
         c.rif,
         c.razonSocial,
-        '',
+        etiquetaFalta(c),
+        c.faltaSegmento ? '' : c.segmentoActual,
+        c.faltaEstado ? '' : c.estadoActual,
       ])
       const wb = XLSX.utils.book_new()
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
@@ -359,115 +435,13 @@ export const useStore = create<StoreState>((set, get) => ({
       }
 
       const zip = new JSZip()
-      const segmentos = get().seeds.segmentos
+      const { segmentos, estados } = get().seeds
 
       for (const [dist, list] of byDist) {
-        const workbook = new ExcelJS.Workbook()
-        const ws1 = workbook.addWorksheet('Clasificación de Tiendas')
-        const ws2 = workbook.addWorksheet('Manual de Segmentos')
-
-        // ── Populating Sheet 2: Manual de Segmentos ──
-        ws2.mergeCells('A1:B1')
-        const titleCell2 = ws2.getCell('A1')
-        titleCell2.value = 'MANUAL DE REFERENCIA DE SEGMENTOS'
-        titleCell2.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
-        titleCell2.alignment = { horizontal: 'center', vertical: 'middle' }
-        titleCell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
-        ws2.getRow(1).height = 30
-
-        ws2.getCell('A3').value = 'Segmento (Tipo de Tienda)'
-        ws2.getCell('B3').value = 'Macro Canal'
-        for (const col of ['A3', 'B3']) {
-          const cell = ws2.getCell(col)
-          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } }
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
-          cell.alignment = { horizontal: 'center', vertical: 'middle' }
-        }
-        ws2.getRow(3).height = 20
-
-        let currentRow = 4
-        for (const seg of segmentos) {
-          ws2.getCell(`A${currentRow}`).value = seg.n3
-          ws2.getCell(`B${currentRow}`).value = seg.macroN1
-          ws2.getCell(`A${currentRow}`).font = { name: 'Arial', size: 10 }
-          ws2.getCell(`B${currentRow}`).font = { name: 'Arial', size: 10 }
-          ws2.getCell(`A${currentRow}`).border = { bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } } }
-          ws2.getCell(`B${currentRow}`).border = { bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } } }
-          currentRow++
-        }
-        const lastRowSegmentos = currentRow - 1
-
-        // ── Populating Sheet 1: Clasificación de Tiendas ──
-        ws1.mergeCells('A1:D1')
-        const titleCell1 = ws1.getCell('A1')
-        titleCell1.value = 'HEINZ - CLASIFICACIÓN DE CLIENTES'
-        titleCell1.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
-        titleCell1.alignment = { horizontal: 'center', vertical: 'middle' }
-        titleCell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
-        ws1.getRow(1).height = 35
-
-        ws1.mergeCells('A2:D2')
-        const subCell1 = ws1.getCell('A2')
-        subCell1.value = 'Por favor, complete la columna "Tipo de Tienda" seleccionando el segmento correspondiente de la lista desplegable.'
-        subCell1.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF555555' } }
-        subCell1.alignment = { horizontal: 'center', vertical: 'middle' }
-        subCell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF0F2' } }
-        ws1.getRow(2).height = 20
-
-        const headers = ['Distribuidor', 'RIF', 'Razón Social', 'Tipo de Tienda']
-        const cols = ['A4', 'B4', 'C4', 'D4']
-        headers.forEach((h, idx) => {
-          const cell = ws1.getCell(cols[idx])
-          cell.value = h
-          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } }
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A1538' } }
-          cell.alignment = { horizontal: 'center', vertical: 'middle' }
-        })
-        ws1.getRow(4).height = 25
-
-        let rIdx = 5
-        for (const rowData of list) {
-          ws1.getCell(`A${rIdx}`).value = rowData.distribuidor
-          ws1.getCell(`B${rIdx}`).value = rowData.rif
-          ws1.getCell(`C${rIdx}`).value = rowData.razonSocial
-          ws1.getCell(`D${rIdx}`).value = ''
-
-          for (const col of ['A', 'B', 'C', 'D']) {
-            const cell = ws1.getCell(`${col}${rIdx}`)
-            cell.font = { name: 'Arial', size: 10 }
-            cell.border = {
-              bottom: { style: 'thin', color: { argb: 'FFD3D3D3' } },
-              left: { style: 'thin', color: { argb: 'FFE5E5E5' } },
-              right: { style: 'thin', color: { argb: 'FFE5E5E5' } },
-            }
-            if (rIdx % 2 === 0) {
-              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFBF7F8' } }
-            }
-          }
-
-          ws1.getCell(`D${rIdx}`).dataValidation = {
-            type: 'list',
-            allowBlank: true,
-            formulae: [`'Manual de Segmentos'!$A$4:$A$${lastRowSegmentos}`]
-          }
-
-          rIdx++
-        }
-
-        ws1.columns = [
-          { key: 'distribuidor', width: 25 },
-          { key: 'rif', width: 15 },
-          { key: 'razonSocial', width: 40 },
-          { key: 'tipoTienda', width: 30 },
-        ]
-        ws2.columns = [
-          { key: 'segmento', width: 35 },
-          { key: 'macro', width: 35 },
-        ]
-
+        const workbook = buildClientesWorkbook(list, segmentos, estados)
         const buffer = await workbook.xlsx.writeBuffer()
         const safeDistName = dist.replace(/[^a-zA-Z0-9_-]/g, '_')
-        zip.file(`planilla_clientes_sin_clasificar_${safeDistName}.xlsx`, buffer)
+        zip.file(`planilla_clientes_pendientes_${safeDistName}.xlsx`, buffer)
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' })
@@ -481,56 +455,61 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ exportState: 'error', exportError: (err as Error).message })
     }
   },
+  // Reads back a filled-in client template. Handles BOTH shapes the app emits — the styled ZIP
+  // sheet (title + subtitle above the header row) and the flat one — because the parser scans for
+  // the header row instead of assuming row 1. Assuming row 1 is what silently broke the round trip
+  // for the styled template before.
+  //
+  // A row counts as imported when it resolves a segment, a state, or both; a row that resolves
+  // neither is skipped rather than written as an empty maestro entry. A pre-existing manual entry
+  // for the same RIF is merged into, so importing a segment-only sheet never erases a state
+  // captured earlier (and vice versa).
   importClientesTemplate: async (file) => {
     const data = await file.arrayBuffer()
     const wb = XLSX.read(data, { type: 'array' })
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const json = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
-
-    if (!json.length) return { added: 0, skipped: 0 }
-
-    const fields = Object.keys(json[0])
-    const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
-    const rifKey = fields.find((f) => ['rif', 'numeroderif'].includes(norm(f)))
-    const tipoTiendaKey = fields.find((f) => ['tipodetienda', 'segmentodetienda', 'tipo', 'segmento'].includes(norm(f)))
-    const razonSocialKey = fields.find((f) => ['razonsocial', 'nombre', 'nombrecliente', 'cliente'].includes(norm(f)))
-
-    if (!rifKey || !tipoTiendaKey) {
-      throw new Error('Archivo no válido: debe contener las columnas "RIF" y "Tipo de Tienda"')
+    // The styled template puts the client sheet first; fall back to scanning every sheet so a
+    // reordered workbook still imports.
+    let filas: FilaPlantilla[] | null = null
+    for (const name of [HOJA_CLIENTES, ...wb.SheetNames]) {
+      const ws = wb.Sheets[name]
+      if (!ws) continue
+      const matrix = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '', raw: false })
+      const parsed = parsePlantillaClientes(matrix)
+      if (parsed) { filas = parsed; break }
     }
+
+    if (filas === null) {
+      throw new Error('Archivo no válido: no se encontró una fila de encabezados con la columna "RIF"')
+    }
+    if (filas.length === 0) return { added: 0, skipped: 0 }
+
+    const { segmentos, estados } = get().seeds
+    const existentes = new Map((await getManualMaestro()).map((m) => [normalizeRif(m.rif), m]))
 
     let added = 0
     let skipped = 0
-    const segmentos = get().seeds.segmentos
+    const fechaClasificacion = new Date().toISOString()
 
-    for (const row of json) {
-      const rif = (row[rifKey] ?? '').trim()
-      const rawTipo = (row[tipoTiendaKey] ?? '').trim()
-      const razonSocial = razonSocialKey ? (row[razonSocialKey] ?? '').trim() : null
+    for (const fila of filas) {
+      const segMatch = matchSegmento(fila.segmentoCrudo, segmentos)
+      const estadoMatch = matchEstado(fila.estadoCrudo, estados)
+      if (!segMatch && !estadoMatch) { skipped++; continue }
 
-      if (!rif || !rawTipo) {
-        skipped++
-        continue
-      }
-
-      const normTipo = normalizeText(rawTipo)
-      const segMatch = segmentos.find((s) => normalizeText(s.n3) === normTipo)
-      if (!segMatch) {
-        skipped++
-        continue
-      }
-
-      await putManualMaestro({
-        rif: normalizeRif(rif),
-        razonSocial: razonSocial || null,
-        segmentoN3: segMatch.n3,
-        macroN1: segMatch.macroN1,
+      const rifKey = normalizeRif(fila.rif)
+      const previo = existentes.get(rifKey)
+      const entry: MaestroEntry = {
+        rif: rifKey,
+        razonSocial: fila.razonSocial || previo?.razonSocial || null,
+        segmentoN3: segMatch?.n3 ?? previo?.segmentoN3 ?? null,
+        macroN1: segMatch?.macroN1 ?? previo?.macroN1 ?? null,
         metodo: 'MANUAL',
         confianza: 'N3',
-        estadoHabitual: null,
-        fechaClasificacion: new Date().toISOString(),
+        estadoHabitual: estadoMatch ?? previo?.estadoHabitual ?? null,
+        fechaClasificacion,
         reglaCanonica: 'MANUAL',
-      })
+      }
+      await putManualMaestro(entry)
+      existentes.set(rifKey, entry)
       added++
     }
 
@@ -548,8 +527,8 @@ export const useStore = create<StoreState>((set, get) => ({
     ])
     set({ thresholds: { fuzzyThreshold: fuzzyThresholdClamped, fuzzySuggestFloor: fuzzySuggestFloorClamped } })
   },
-  // Wipes everything the analyst has taught the motor (learned diccionario + manual maestro) —
-  // an explicit, deliberate reset the Config UI gates behind a two-click inline confirm.
+  // Wipes everything the analyst has taught the motor (both learned dictionaries + the manual
+  // maestro) — an explicit, deliberate reset the Config UI gates behind a two-click inline confirm.
   resetLearned: async () => {
     await clearLearned()
     await get().refreshLearned()

@@ -110,3 +110,37 @@ describe('applyMaestroRecovery', () => {
     expect(result.recuperadosPorDist.has('DIST_C')).toBe(false)
   })
 })
+
+describe('applyMaestroRecovery — estado-only maestro entries', () => {
+  // The maestro now also holds clients whose state resolved but whose segment never did. Those
+  // recover STATES, not segments: counting them here would inflate the classification rate with
+  // rows that still have no segment at all.
+  test('an entry with no segment and no macro does not recover segment rows', () => {
+    const soloEstado = maestroEntry({ segmentoN3: null, macroN1: null, metodo: null, estadoHabitual: 'ZULIA' })
+    const result = applyMaestroRecovery({
+      segmento: { MAESTRO: 0, EXACTO: 10, FUZZY: 0, SIN_CLASIFICAR: 5 },
+      tonSinClasificar: 50,
+      unresueltoPorRif: new Map([['J1', { count: 5, ton: 50, rif: 'J-1', razonSocial: '', distribuidor: 'D' }]]),
+      unresueltoDistRif: new Map([['D', new Map([['J1', 5]])]]),
+      maestro: new Map([['J1', soloEstado]]),
+    })
+
+    expect(result.recuperados).toBe(0)
+    expect(result.segmento.SIN_CLASIFICAR).toBe(5)
+    expect(result.recuperadosPorDist.size).toBe(0)
+  })
+
+  test('an entry carrying only a macro-canal DOES recover (MACRO confidence is a classification)', () => {
+    const soloMacro = maestroEntry({ segmentoN3: null, macroN1: 'MAYORISTAS', confianza: 'MACRO' })
+    const result = applyMaestroRecovery({
+      segmento: { MAESTRO: 0, EXACTO: 10, FUZZY: 0, SIN_CLASIFICAR: 5 },
+      tonSinClasificar: 50,
+      unresueltoPorRif: new Map([['J1', { count: 5, ton: 50, rif: 'J-1', razonSocial: '', distribuidor: 'D' }]]),
+      unresueltoDistRif: new Map([['D', new Map([['J1', 5]])]]),
+      maestro: new Map([['J1', soloMacro]]),
+    })
+
+    expect(result.recuperados).toBe(5)
+    expect(result.segmento.SIN_CLASIFICAR).toBe(0)
+  })
+})

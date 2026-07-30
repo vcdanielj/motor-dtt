@@ -320,10 +320,11 @@ export default function Manual() {
               distribuidor.
             </Step>
             <Step n={4} title="Resolver la cola">
-              La <strong>Cola de revisión</strong> lista lo que quedó sin resolver, ordenado por toneladas. Asignas el
-              segmento correcto a cada pendiente y la clasificación <strong>se guarda localmente (IndexedDB)</strong>:
-              el motor la aplica automáticamente en la próxima corrida —las variantes van al diccionario aprendido y
-              los conflictos de RIF al maestro manual.
+              La <strong>Cola de revisión</strong> lista lo que quedó sin resolver en <strong>ambos campos</strong>
+              —segmento y estado—, ordenado por toneladas y filtrable por dominio. Asignas el valor correcto a cada
+              pendiente y la clasificación <strong>se guarda localmente (IndexedDB)</strong>: el motor la aplica
+              automáticamente en la próxima corrida —las variantes de segmento van al diccionario aprendido, las de
+              estado al diccionario de estados, y los conflictos de RIF al maestro manual.
             </Step>
             <Step n={5} title="Exportar la base estandarizada">
               Descargas el CSV con todas las columnas originales intactas más las columnas estandarizadas (segmento
@@ -405,17 +406,19 @@ export default function Manual() {
               dato (crudo) frente a lo recuperado por el motor (post), registros y toneladas.
             </ScreenCard>
             <ScreenCard icon="⚑" title="Cola de revisión">
-              Los pendientes que necesitan criterio humano: variantes nuevas con sugerencia difusa, clientes de alto
-              volumen sin clasificar y conflictos, priorizados por toneladas.
+              Los pendientes que necesitan criterio humano, en dos dominios: variantes nuevas de segmento y de
+              estado con sugerencia difusa, clientes de alto volumen sin clasificar y conflictos de RIF, todos
+              priorizados por toneladas. El tope se aplica por dominio, así los estados nunca quedan desplazados
+              por una cola larga de segmentos.
             </ScreenCard>
             <ScreenCard icon="◉" title="Maestro de clientes">
               La tabla de clientes por RIF con su segmento, macro-canal, método de clasificación, confianza y la
               regla canónica aplicada. Buscable por RIF o nombre.
             </ScreenCard>
             <ScreenCard icon="⚙" title="Configuración">
-              Catálogos (37 segmentos, 8 macro-canales, 24 estados, diccionario) y umbrales del motor, ahora
-              editables. Puedes exportar e importar (CSV) el diccionario y el maestro aprendidos, y hay un botón
-              «Restablecer aprendizaje».
+              Catálogos (37 segmentos, 8 macro-canales, 24 estados, diccionario de segmentos, diccionario de
+              variantes de estado y matriz ciudad→estado) y umbrales del motor, ahora editables. Puedes exportar e
+              importar (CSV) ambos diccionarios y el maestro aprendidos, y hay un botón «Restablecer aprendizaje».
             </ScreenCard>
           </div>
         </section>
@@ -506,19 +509,42 @@ export default function Manual() {
           <SectionHead n="06" title="Cómo resuelve el estado" sub="La misma idea de cascada, aplicada a la geografía." />
           <Prose>
             <p>
-              El programa prohíbe el valor «NO IDENTIFICADO»: el motor lo trata como vacío y trata de recuperar el
-              estado real por otras vías. Para esto, se limpian prefijos comunes como «EDO», «ESTADO», «EDO.», «ESTADO DE» antes de buscar coincidencia.
+              El estado tiene exactamente la misma maquinaria que el segmento: catálogo oficial, diccionario de
+              variantes que se puede enseñar, cola de revisión, recuperación por RIF y los mismos umbrales fuzzy.
+            </p>
+            <p>
+              Antes de buscar coincidencia, el motor <strong>limpia el texto</strong>: quita prefijos administrativos
+              («EDO», «EDO.ZULIA» sin espacio, «ESTADO DE», «DTTO»), códigos numéricos al inicio («13 ZULIA»),
+              sufijos de ruido («MIRANDA ESTADO», «ZULIA / VENEZUELA») y paréntesis. Además trata como vacío una
+              cuarentena de valores sin información: «NO IDENTIFICADO», «N/A», «SIN DEFINIR», «POR DEFINIR»,
+              «NULL», «-», «0» y una treintena más.
             </p>
           </Prose>
 
           <div className="mt-5 flex max-w-[720px] flex-col">
             <CascadeNode accent="navy" method="1 · CATÁLOGO (EXACTO)" chips={<Chip tone="navy">exacto</Chip>}>
-              Si el estado crudo (limpio de prefijos) coincide con uno de los 24 estados oficiales de Venezuela, se acepta.
+              Si el estado crudo, ya limpio, coincide con uno de los 24 estados oficiales de Venezuela, se acepta.
             </CascadeNode>
             <CascadeArrow>si no coincide de forma exacta</CascadeArrow>
             <CascadeNode
+              accent="cyan"
+              method="2 · DICCIONARIO DE VARIANTES"
+              chips={
+                <>
+                  <Chip tone="cyan">semilla</Chip>
+                  <Chip tone="green">aprendible</Chip>
+                </>
+              }
+            >
+              Traducciones conocidas de texto crudo a estado oficial: abreviaturas («DTTO CAPITAL», «NVA ESPARTA»),
+              renombres oficiales («LA GUAIRA» → VARGAS, porque el catálogo Heinz manda) y errores de escritura
+              habituales. Va antes del RIF porque un estado escrito y mapeable es mejor evidencia que el estado
+              habitual del cliente. Cada resolución en la Cola añade una entrada aquí, para siempre.
+            </CascadeNode>
+            <CascadeArrow>si la variante no está en el diccionario</CascadeArrow>
+            <CascadeNode
               accent="gold"
-              method="2 · POR RIF (HISTÓRICO)"
+              method="3 · POR RIF (HISTÓRICO)"
               chips={
                 <>
                   <Chip tone="gold">histórico</Chip>
@@ -526,19 +552,25 @@ export default function Manual() {
                 </>
               }
             >
-              Se recupera el estado a través del historial del cliente (RIF), calculando su moda o estado más recurrente en otras transacciones.
+              Se recupera el estado a través del historial del cliente (RIF), tomando su estado más recurrente en
+              otras transacciones. Gana sobre la ciudad cuando ambos discrepan (regla R4).
             </CascadeNode>
             <CascadeArrow>si el RIF no tiene historial geográfico</CascadeArrow>
-            <CascadeNode accent="cyan" method="3 · POR CIUDAD" chips={<Chip tone="cyan">tabla ciudad→estado</Chip>}>
-              Se deduce el estado a partir de la ciudad del cliente usando la matriz precargada en el sistema.
+            <CascadeNode accent="cyan" method="4 · POR CIUDAD" chips={<Chip tone="cyan">~150 ciudades</Chip>}>
+              Se deduce el estado a partir de la ciudad del cliente. La matriz solo incluye nombres que identifican
+              un único estado: los ambiguos («San Carlos», «Libertador») se dejan fuera a propósito, porque
+              adivinar mal es peor que dejar el registro sin estado.
             </CascadeNode>
             <CascadeArrow>si la ciudad no resuelve</CascadeArrow>
-            <CascadeNode accent="amber" method="4 · COINCIDENCIA DIFUSA" chips={<Chip tone="amber">fuzzy &gt;= 80</Chip>}>
-              Se realiza una búsqueda difusa (Levenshtein) del estado crudo contra los 24 estados oficiales para capturar errores de escritura comunes (ej: «ZULYA» → «ZULIA»).
+            <CascadeNode accent="amber" method="5 · COINCIDENCIA DIFUSA" chips={<Chip tone="amber">umbral configurable</Chip>}>
+              Búsqueda difusa (Levenshtein tokenizado) del estado crudo contra los 24 oficiales y contra las claves
+              del diccionario. Usa el mismo umbral que el segmento: por encima se asigna, y entre el piso y el
+              umbral <strong>no se asigna</strong> — se manda a la Cola con la sugerencia.
             </CascadeNode>
             <CascadeArrow>si nada resuelve</CascadeArrow>
-            <CascadeNode accent="red" method="5 · SIN_ESTADO" chips={<Chip tone="red">a revisión</Chip>}>
-              Queda marcado sin estado, nunca imputado.
+            <CascadeNode accent="red" method="6 · SIN_ESTADO" chips={<Chip tone="red">a revisión</Chip>}>
+              Queda marcado sin estado, nunca imputado, y el valor crudo entra a la Cola de revisión agrupado por
+              volumen para que una sola decisión arregle miles de filas.
             </CascadeNode>
           </div>
         </section>
@@ -640,8 +672,10 @@ export default function Manual() {
             <p>
               Toda la clasificación se apoya en un catálogo oficial embebido en la herramienta. Son{' '}
               <strong>37 segmentos (Nivel&nbsp;3)</strong> agrupados en <strong>8 macro-canales (Nivel&nbsp;1)</strong>,
-              más <strong>24 estados</strong> y una matriz de <strong>~200 equivalencias</strong> de variantes reales
-              encontradas en la data.
+              más <strong>24 estados</strong>, una matriz de <strong>~200 equivalencias</strong> de variantes de
+              segmento y un <strong>diccionario de variantes de estado</strong> (abreviaturas, renombres oficiales y
+              errores de escritura) respaldado por una matriz de <strong>~150 ciudades</strong>, todo encontrado en
+              la data real.
             </p>
           </Prose>
           <div className="mt-4 flex max-w-[720px] flex-wrap gap-2">
@@ -806,7 +840,11 @@ export default function Manual() {
               Score de Calidad del Dato Crudo: qué tan utilizable envió el dato el distribuidor.
             </GlossItem>
             <GlossItem term="Cola de revisión">
-              La lista priorizada de pendientes que requieren decisión humana.
+              La lista priorizada de pendientes que requieren decisión humana, tanto de segmento como de estado.
+            </GlossItem>
+            <GlossItem term="Diccionario de variantes de estado">
+              Las traducciones de texto crudo a estado oficial que el motor ya conoce o que le has enseñado — por
+              ejemplo «DTTO CAPITAL» → DISTRITO CAPITAL o «LA GUAIRA» → VARGAS.
             </GlossItem>
             <GlossItem term="Confianza N3 / MACRO">
               Si el registro quedó clasificado al segmento fino (N3) o solo al macro-canal (N1).

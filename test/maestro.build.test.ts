@@ -225,3 +225,41 @@ describe('MaestroBuilder — size()', () => {
     expect(b.size()).toBe(2)
   })
 })
+
+describe('MaestroBuilder — estado-only clients', () => {
+  test('a client whose rows only ever resolved a state still earns a maestro entry', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-1', segmentoN3: '', macroN1: '', metodo: null, fechaOrden: null, estadoStd: 'ZULIA' })
+    const { maestro } = b.build()
+
+    const entry = maestro.get(normalizeRif('J-1'))
+    expect(entry).toBeDefined()
+    expect(entry).toMatchObject({ segmentoN3: null, macroN1: null, estadoHabitual: 'ZULIA' })
+  })
+
+  test('a client with neither a segment nor a state is not stored at all', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-2', segmentoN3: '', macroN1: '', metodo: null, fechaOrden: null, estadoStd: null })
+    expect(b.build().maestro.size).toBe(0)
+  })
+
+  test('estadoHabitual is the mode across the client\'s rows', () => {
+    const b = new MaestroBuilder()
+    for (const estadoStd of ['ZULIA', 'ZULIA', 'MIRANDA']) {
+      b.observe({ rif: 'J-3', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: null, estadoStd })
+    }
+    expect(b.build().maestro.get(normalizeRif('J-3'))?.estadoHabitual).toBe('ZULIA')
+  })
+
+  test('a tie in the state mode breaks alphabetically, so the result is row-order independent', () => {
+    const build = (orden: string[]) => {
+      const b = new MaestroBuilder()
+      for (const estadoStd of orden) {
+        b.observe({ rif: 'J-4', segmentoN3: 'BODEGA', macroN1: UTT, metodo: 'EXACTO', fechaOrden: null, estadoStd })
+      }
+      return b.build().maestro.get(normalizeRif('J-4'))?.estadoHabitual
+    }
+    expect(build(['ZULIA', 'MIRANDA'])).toBe('MIRANDA')
+    expect(build(['MIRANDA', 'ZULIA'])).toBe('MIRANDA')
+  })
+})

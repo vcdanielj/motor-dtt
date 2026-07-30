@@ -1,4 +1,6 @@
 import type { MetodoSegmento, MetodoEstado } from '@/contracts/row'
+import type { EstadoTally, MethodTally } from '@/contracts/pipeline'
+import { guardTon, pct1 } from '@/lib/num'
 import type { ResolvedRow } from './process-row'
 
 export interface DistribuidorMetric {
@@ -7,21 +9,23 @@ export interface DistribuidorMetric {
   exactoCrudo: number // rows whose metodoSegmento === 'EXACTO' (distributor sent a directly-usable segment) — D5 basis
   resueltoPost: number // rows with flagRegistro !== 'SIN_CLASIFICAR' (segment resolved by ANY method)
   estadoValido: number // rows with estadoStd !== null
+  estadoExactoCrudo: number // rows whose metodoEstado === 'EXACTO' (state sent already canonical)
   ton: number // sum of TON
   tonSinClasificar: number // TON in rows where segment unresolved
-  metodo: { MAESTRO: number; EXACTO: number; FUZZY: number; SIN_CLASIFICAR: number }
+  metodo: MethodTally
+  metodoEstado: EstadoTally
 }
 
 export interface TotalsMetric {
   registros: number
-  porMetodoSegmento: { MAESTRO: number; EXACTO: number; FUZZY: number; SIN_CLASIFICAR: number }
+  porMetodoSegmento: MethodTally
   estadoValido: number
-  porMetodoEstado: { EXACTO: number; RIF: number; CIUDAD: number; SIN_ESTADO: number }
+  porMetodoEstado: EstadoTally
   ton: number
 }
 
-type SegBucket = keyof DistribuidorMetric['metodo']
-type EstBucket = keyof TotalsMetric['porMetodoEstado']
+type SegBucket = keyof MethodTally
+type EstBucket = keyof EstadoTally
 
 function segmentoBucket(metodo: MetodoSegmento): SegBucket {
   switch (metodo) {
@@ -37,16 +41,22 @@ function segmentoBucket(metodo: MetodoSegmento): SegBucket {
 function estadoBucket(metodo: MetodoEstado): EstBucket {
   switch (metodo) {
     case 'EXACTO':
+    case 'DICCIONARIO':
     case 'RIF':
     case 'CIUDAD':
+    case 'FUZZY':
       return metodo
     default:
       return 'SIN_ESTADO'
   }
 }
 
-function guardTon(ton: number): number {
-  return Number.isFinite(ton) ? ton : 0
+function newMethodTally(): MethodTally {
+  return { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 }
+}
+
+export function newEstadoTally(): EstadoTally {
+  return { EXACTO: 0, DICCIONARIO: 0, RIF: 0, CIUDAD: 0, FUZZY: 0, SIN_ESTADO: 0 }
 }
 
 function newDistribuidorMetric(nombre: string): DistribuidorMetric {
@@ -56,18 +66,20 @@ function newDistribuidorMetric(nombre: string): DistribuidorMetric {
     exactoCrudo: 0,
     resueltoPost: 0,
     estadoValido: 0,
+    estadoExactoCrudo: 0,
     ton: 0,
     tonSinClasificar: 0,
-    metodo: { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 },
+    metodo: newMethodTally(),
+    metodoEstado: newEstadoTally(),
   }
 }
 
 function newTotalsMetric(): TotalsMetric {
   return {
     registros: 0,
-    porMetodoSegmento: { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 },
+    porMetodoSegmento: newMethodTally(),
     estadoValido: 0,
-    porMetodoEstado: { EXACTO: 0, RIF: 0, CIUDAD: 0, SIN_ESTADO: 0 },
+    porMetodoEstado: newEstadoTally(),
     ton: 0,
   }
 }
@@ -91,11 +103,13 @@ export class MetricsAccumulator {
 
     d.registros += 1
     if (r.metodoSegmento === 'EXACTO') d.exactoCrudo += 1
+    if (r.metodoEstado === 'EXACTO') d.estadoExactoCrudo += 1
     if (r.flagRegistro !== 'SIN_CLASIFICAR') d.resueltoPost += 1
     if (r.estadoStd !== null) d.estadoValido += 1
     d.ton += safeTon
     if (r.flagRegistro === 'SIN_CLASIFICAR') d.tonSinClasificar += safeTon
     d.metodo[segBucket] += 1
+    d.metodoEstado[estBucket] += 1
 
     this.totalsAcc.registros += 1
     this.totalsAcc.porMetodoSegmento[segBucket] += 1
@@ -107,7 +121,7 @@ export class MetricsAccumulator {
   /** Snapshot of per-distributor metrics, sorted by ton descending. */
   distribuidores(): DistribuidorMetric[] {
     return Array.from(this.dists.values())
-      .map((d) => ({ ...d, metodo: { ...d.metodo } }))
+      .map((d) => ({ ...d, metodo: { ...d.metodo }, metodoEstado: { ...d.metodoEstado } }))
       .sort((a, b) => b.ton - a.ton)
   }
 
@@ -121,11 +135,6 @@ export class MetricsAccumulator {
   }
 }
 
-function pct1(numerator: number, denominator: number): number {
-  if (denominator === 0) return 0
-  return Math.round((numerator / denominator) * 1000) / 10
-}
-
 /** SCDC over crudo (D5): share of rows the distributor sent in a directly-usable format. */
 export function scdcCrudoPct(d: DistribuidorMetric): number {
   return pct1(d.exactoCrudo, d.registros)
@@ -134,4 +143,9 @@ export function scdcCrudoPct(d: DistribuidorMetric): number {
 /** Share of rows resolved by any method (post-cascade). */
 export function scdcPostPct(d: DistribuidorMetric): number {
   return pct1(d.resueltoPost, d.registros)
+}
+
+/** Share of rows whose state the distributor already sent canonical (the estado analogue of D5). */
+export function estadoCrudoPct(d: DistribuidorMetric): number {
+  return pct1(d.estadoExactoCrudo, d.registros)
 }

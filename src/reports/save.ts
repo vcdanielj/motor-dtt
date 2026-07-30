@@ -51,6 +51,8 @@ export async function saveBlob(
   document.body.appendChild(a)
   a.click()
   a.remove()
-  URL.revokeObjectURL(url)
+  // Revoking synchronously can cancel the download before the browser has read the blob (Firefox
+  // and Safari both do this on large files). Defer it to the next task instead.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
   return 'fallback'
 }

@@ -4,19 +4,22 @@
 // fallback values and putters no-op, so the app keeps working purely on the embedded SEEDS.
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
-import type { DiccionarioEntry } from '@/contracts/config'
+import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 
 interface MetaRecord { key: string; value: unknown }
 
 interface MotorDTTSchema extends DBSchema {
   diccionario: { key: string; value: DiccionarioEntry }
+  estadoDiccionario: { key: string; value: EstadoDiccionarioEntry }
   maestro: { key: string; value: MaestroEntry }
   meta: { key: string; value: MetaRecord }
 }
 
 const DB_NAME = 'motor-dtt'
-const DB_VERSION = 1
+// v2 adds the `estadoDiccionario` store. The upgrade callback below creates every store it does
+// not find, so an existing v1 database gains the new store and keeps its data.
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBPDatabase<MotorDTTSchema> | null> | null = null
 
@@ -35,6 +38,7 @@ function openMotorDB(): Promise<IDBPDatabase<MotorDTTSchema> | null> {
       return await openDB<MotorDTTSchema>(DB_NAME, DB_VERSION, {
         upgrade(db) {
           if (!db.objectStoreNames.contains('diccionario')) db.createObjectStore('diccionario', { keyPath: 'variante' })
+          if (!db.objectStoreNames.contains('estadoDiccionario')) db.createObjectStore('estadoDiccionario', { keyPath: 'variante' })
           if (!db.objectStoreNames.contains('maestro')) db.createObjectStore('maestro', { keyPath: 'rif' })
           if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' })
         },
@@ -59,6 +63,28 @@ export async function putLearnedDiccionario(entry: DiccionarioEntry): Promise<vo
   const db = await openMotorDB()
   if (!db) return
   await db.put('diccionario', { ...entry, variante: normalizeText(entry.variante) })
+}
+
+/** All learned estado variants (beyond the embedded seeds). [] if IndexedDB is unavailable. */
+export async function getLearnedEstados(): Promise<EstadoDiccionarioEntry[]> {
+  const db = await openMotorDB()
+  if (!db) return []
+  return db.getAll('estadoDiccionario')
+}
+
+/** Persists a learned estado variant, keyed by normalizeText(variante) — re-putting a
+ *  differently-cased/spaced variante that normalizes to the same key overwrites the prior entry. */
+export async function putLearnedEstado(entry: EstadoDiccionarioEntry): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  await db.put('estadoDiccionario', { ...entry, variante: normalizeText(entry.variante) })
+}
+
+/** Deletes a specific learned estado variant (normalizing the key first). */
+export async function deleteLearnedEstado(variante: string): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  await db.delete('estadoDiccionario', normalizeText(variante))
 }
 
 /** All manually-classified maestro entries (metodo: 'MANUAL'). [] if IndexedDB is unavailable. */
@@ -90,11 +116,13 @@ export async function putMeta(key: string, value: unknown): Promise<void> {
   await db.put('meta', { key, value })
 }
 
-/** Wipes the learned diccionario + manual maestro stores (tests / reset). Leaves meta untouched. */
+/** Wipes every learned store — segment diccionario, estado diccionario and manual maestro
+ *  (tests / reset). Leaves meta untouched. */
 export async function clearLearned(): Promise<void> {
   const db = await openMotorDB()
   if (!db) return
   await db.clear('diccionario')
+  await db.clear('estadoDiccionario')
   await db.clear('maestro')
 }
 

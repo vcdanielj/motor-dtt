@@ -11,7 +11,11 @@ export type OutputColumn = typeof OUTPUT_COLUMNS[number]
 
 export type MetodoSegmento = 'MAESTRO' | 'EXACTO' | 'FUZZY' | 'MANUAL' | null
 export type ConfianzaSegmento = 'N3' | 'MACRO' | null
-export type MetodoEstado = 'EXACTO' | 'RIF' | 'CIUDAD' | 'FUZZY' | null
+// EXACTO: crudo (cleaned) is already one of the 24 official estados.
+// DICCIONARIO: crudo matched a raw→canonical variant mapping (seed ++ learned).
+// RIF: taken from the client's habitual estado in the maestro. CIUDAD: inferred from the city.
+// FUZZY: near-match against the catalog/dictionary above the configured threshold.
+export type MetodoEstado = 'EXACTO' | 'DICCIONARIO' | 'RIF' | 'CIUDAD' | 'FUZZY' | null
 export type FlagRegistro = 'OK' | 'SIN_CLASIFICAR' | 'SIN_ESTADO' | 'DUPLICADO' | 'CONFLICTO_MAYOR'
 
 // Which raw header maps to each internal field (produced by schema-detect).

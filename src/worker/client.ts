@@ -1,12 +1,13 @@
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
-import type { DiccionarioEntry } from '@/contracts/config'
+import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 
-// Learned config (Sprint 2 · C1): the merged diccionario + persisted manual classifications the
+// Learned config (Sprint 2 · C1): the merged dictionaries + persisted manual classifications the
 // store loads via loadRunConfig(). Optional so existing callers (and their fakes) keep working —
-// the worker defaults to SEEDS.diccionario + no manual maestro when omitted.
+// the worker defaults to the embedded SEEDS + no manual maestro when omitted.
 export interface LearnedConfig {
   diccionario: DiccionarioEntry[]
+  estadoDiccionario: EstadoDiccionarioEntry[]
   manualMaestro: MaestroEntry[]
 }
 
@@ -49,7 +50,8 @@ export function runPipeline(
     worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
     worker.postMessage({
       file, mode: 'pipeline',
-      diccionario: learned?.diccionario, manualMaestro: learned?.manualMaestro,
+      diccionario: learned?.diccionario, estadoDiccionario: learned?.estadoDiccionario,
+      manualMaestro: learned?.manualMaestro,
       fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })
@@ -77,7 +79,8 @@ export function runExport(
     worker.onerror = (err) => { worker.terminate(); reject(err instanceof ErrorEvent ? err.error : new Error('worker error')) }
     worker.postMessage({
       file, mode: 'export', versionDiccionario, runId,
-      diccionario: learned?.diccionario, manualMaestro: learned?.manualMaestro,
+      diccionario: learned?.diccionario, estadoDiccionario: learned?.estadoDiccionario,
+      manualMaestro: learned?.manualMaestro,
       fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })
