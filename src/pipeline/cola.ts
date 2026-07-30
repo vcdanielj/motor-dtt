@@ -1,6 +1,7 @@
 import { normalizeText } from '@/ingest/normalize'
 import { COLA_DOMINIO_POR_TIPO, type ColaItem, type ColaTipo } from '@/contracts/cola'
 import { guardTon } from '@/lib/num'
+import { cleanEstadoString, isProhibitedEstado } from './estado'
 import type { ResolvedRow } from './process-row'
 
 interface Group {
@@ -79,6 +80,10 @@ export function createColaAccumulator(): ColaAccumulator {
       const key = normalizeText(crudo)
       if (key === '') return // empty crudo needs the maestro/ciudad, not the cola
       if (resolved.estadoStd !== null) return // already resolved by some cascade step
+      // R4 placeholders ('NO IDENTIFICADO', 'N/A', '-', …) are the ABSENCE of a state, not a
+      // variant of one. There is nothing an analyst could map them to, and the rows carrying
+      // them are the ones the maestro's RIF step recovers — so they must never reach the queue.
+      if (isProhibitedEstado(key) || isProhibitedEstado(cleanEstadoString(crudo))) return
 
       if (resolved.sugerenciaEstado) {
         add('ESTADO_VARIANTE_NUEVA', key, ton, {

@@ -30,7 +30,9 @@ export interface EstadoContext {
 /** R4: values that carry no information. Matched against the CLEANED, normalized text — note that
  *  normalizeText turns '/' '-' '_' '|' into ' / ', so 'N/A' arrives here as 'N / A'. */
 const PROHIBITED_ESTADOS = new Set([
-  '', '.', '-', '0', '00', 'X', 'XX', 'XXX', '?', 'NULL', 'NULO', 'NONE', 'NINGUNO',
+  // normalizeText rewrites '-', '_', '|' and '/' to ' / ', so every dash/slash-only cell arrives
+  // here as the single token '/'.
+  '', '.', '..', '/', '0', '00', 'X', 'XX', 'XXX', '?', 'NULL', 'NULO', 'NONE', 'NINGUNO',
   'NO IDENTIFICADO', 'NO IDENTIFICADA', 'NO IDENTIFICADOS', 'NO APLICA', 'NO DEFINIDO',
   'NO DISPONIBLE', 'NO REGISTRA', 'NO INDICA',
   'N / A', 'NA', 'N / D', 'ND', 'S / I', 'SI', 'SD',

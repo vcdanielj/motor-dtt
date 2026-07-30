@@ -55,6 +55,17 @@ describe('cola accumulator — estado domain', () => {
     expect(cola.build()).toEqual([])
   })
 
+  // An R4 placeholder is the ABSENCE of a state, not a variant of one: there is nothing to map it
+  // to, and those rows are exactly the ones the maestro's RIF step recovers.
+  test.each([['NO IDENTIFICADO'], ['N/A'], ['SIN DEFINIR'], ['-'], ['0'], ['ESTADO']])(
+    'the placeholder %s never reaches the queue',
+    (crudo) => {
+      const cola = createColaAccumulator()
+      cola.addEstado(crudo, sinEstado(), 100)
+      expect(cola.build()).toEqual([])
+    },
+  )
+
   test('an empty crudo produces no item — that is the maestro\'s job, not the cola\'s', () => {
     const cola = createColaAccumulator()
     cola.addEstado('', sinEstado(), 10)

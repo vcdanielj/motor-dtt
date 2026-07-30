@@ -3,7 +3,7 @@ import { SEEDS } from '@/seeds'
 import {
   buildEstadoContext, cleanEstadoString, resolveEstado, isProhibitedEstado, type EstadoContext,
 } from '@/pipeline/estado'
-import { normalizeRif } from '@/ingest/normalize'
+import { normalizeRif, normalizeText } from '@/ingest/normalize'
 
 function makeCtx(): EstadoContext {
   return buildEstadoContext(
@@ -29,12 +29,20 @@ describe('isProhibitedEstado', () => {
     expect(isProhibitedEstado('ZULIA')).toBe(false)
   })
 
+  // The input is expected to be already normalized — note '-'/'_'/'|' all arrive as '/'.
   test.each([
     ['N / A'], ['NA'], ['ND'], ['SIN ESTADO'], ['SIN DEFINIR'], ['POR DEFINIR'],
-    ['NULL'], ['NINGUNO'], ['DESCONOCIDO'], ['-'], ['0'], ['X'], ['NO APLICA'],
+    ['NULL'], ['NINGUNO'], ['DESCONOCIDO'], ['/'], ['0'], ['X'], ['NO APLICA'],
   ])('placeholder %s is prohibited', (value) => {
     expect(isProhibitedEstado(value)).toBe(true)
   })
+
+  test.each([['-'], ['--'], ['_'], ['|'], ['N/A'], ['n/a']])(
+    'the raw cell %s normalizes into a prohibited token',
+    (raw) => {
+      expect(isProhibitedEstado(normalizeText(raw))).toBe(true)
+    },
+  )
 })
 
 describe('cleanEstadoString', () => {

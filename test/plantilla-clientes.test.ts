@@ -9,6 +9,8 @@ import {
 } from '@/reports/plantilla-clientes'
 import type { ClientesSinClasificarRow } from '@/contracts/pipeline'
 import { useStore } from '@/state/store'
+import { adapters } from '@/adapters'
+import JSZip from 'jszip'
 import { clearLearned, getManualMaestro } from '@/storage/db'
 
 const cliente = (over: Partial<ClientesSinClasificarRow> = {}): ClientesSinClasificarRow => ({
@@ -224,5 +226,53 @@ describe('importClientesTemplate (store)', () => {
 
     await expect(useStore.getState().importClientesTemplate(await comoArchivo(wb)))
       .rejects.toThrow(/RIF/)
+  })
+})
+
+describe('exportUnclassifiedZip (store)', () => {
+  const cliente2 = (over: Partial<ClientesSinClasificarRow>): ClientesSinClasificarRow =>
+    cliente({ ...over })
+
+  test('emits one styled workbook per distributor, and each one imports back cleanly', async () => {
+    const original = adapters.saveBlob
+    let zipBlob: Blob | undefined
+    let nombre = ''
+    adapters.saveBlob = async (blob, name) => { zipBlob = blob; nombre = name; return 'saved' }
+
+    try {
+      useStore.setState({
+        runId: 'run-9',
+        runResult: {
+          clientesSinClasificar: [
+            cliente2({ distribuidor: 'DIST NORTE', rif: 'J-1', razonSocial: 'UNO' }),
+            cliente2({ distribuidor: 'DIST SUR', rif: 'J-2', razonSocial: 'DOS', faltaSegmento: false, segmentoActual: 'BODEGA' }),
+          ],
+        } as never,
+      })
+
+      await useStore.getState().exportUnclassifiedZip()
+      expect(nombre).toBe('planillas_distribuidores_run-9.zip')
+      expect(zipBlob).toBeDefined()
+
+      const zip = await JSZip.loadAsync(await zipBlob!.arrayBuffer())
+      const nombres = Object.keys(zip.files).sort()
+      expect(nombres).toEqual([
+        'planilla_clientes_pendientes_DIST_NORTE.xlsx',
+        'planilla_clientes_pendientes_DIST_SUR.xlsx',
+      ])
+
+      // Every emitted workbook must be readable by the importer — the round trip end to end.
+      for (const name of nombres) {
+        const buf = await zip.file(name)!.async('arraybuffer')
+        const wb = XLSX.read(buf, { type: 'array' })
+        expect(wb.SheetNames).toEqual([HOJA_CLIENTES, HOJA_SEGMENTOS, HOJA_ESTADOS])
+        const matrix = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[HOJA_CLIENTES], { header: 1, defval: '', raw: false })
+        expect(matrix[3]).toEqual([...TEMPLATE_HEADERS])
+        expect(parsePlantillaClientes(matrix)).toHaveLength(1)
+      }
+    } finally {
+      adapters.saveBlob = original
+      useStore.setState({ runResult: null, runId: null })
+    }
   })
 })

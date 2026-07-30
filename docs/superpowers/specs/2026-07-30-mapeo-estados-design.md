@@ -244,6 +244,23 @@ Línea base: 209 tests en verde. Se añaden tests para:
   hoy y es la prueba de regresión del bug principal.
 - Resolución de un ítem de cola de dominio `ESTADO` → entrada aprendida.
 
+## Hallazgos durante la implementación
+
+Tres cosas que el diseño no había previsto y que se corrigieron sobre la marcha:
+
+1. **`MaestroBuilder.build()` descartaba los clientes solo-estado.** Saltaba todo RIF sin
+   segmentos observados, así que la entrada de maestro que hace posible la recuperación por
+   RIF nunca llegaba a existir. Ahora emite una entrada con `segmentoN3`/`macroN1` en `null`.
+   Como consecuencia, `applyMaestroRecovery` tuvo que dejar de contar esas entradas como
+   recuperación de segmento: inflaban el % de clasificación con filas que siguen sin segmento.
+2. **La guarda de `resolveSegmento` era demasiado estricta.** Una entrada de maestro con solo
+   macro-canal (`confianza: 'MACRO'`) es legítima; la guarda correcta es "tiene N3 **o** macro",
+   no "tiene N3".
+3. **Los valores prohibidos llegaban a la cola de estados.** Correr la app con datos reales
+   mostró «NO IDENTIFICADO» ofrecido como variante mapeable. Un placeholder R4 es la *ausencia*
+   de un estado, no una variante de uno, y esas filas son justo las que recupera el paso RIF.
+   `addEstado` ahora los filtra.
+
 ## Fuera de alcance
 
 - Sincronización entre dispositivos (el aprendizaje sigue siendo local por diseño).
