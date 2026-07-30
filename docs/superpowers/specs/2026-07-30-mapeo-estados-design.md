@@ -261,6 +261,36 @@ Tres cosas que el diseño no había previsto y que se corrigieron sobre la march
    de un estado, no una variante de uno, y esas filas son justo las que recupera el paso RIF.
    `addEstado` ahora los filtra.
 
+## Segunda iteración: lo que dijo el archivo real
+
+Correr el motor sobre las 740.009 filas reales dejó la cola de estados en **cero**. No era un
+defecto: la columna Estado de ese archivo trae 25 valores distintos —los 24 oficiales, todos
+canónicos, más `NO IDENTIFICADO`—, así que el diccionario y el fuzzy no tenían nada que hacer. El
+estado que falta no se pierde en la columna Estado sino en la **ciudad**.
+
+**Una regla que se midió y se descartó.** La idea obvia era leer el estado cuando aparece dentro
+del string de ciudad («PUERTO ORDAZ BOLIVAR»). Medida contra las 693.054 filas etiquetadas dio
+**94,0% de precisión**: los topónimos venezolanos contienen nombres de otros estados —SAN JOSE DE
+BOLIVAR es Táchira, ARAGUA DE BARCELONA es Anzoátegui, GUARICO es también una población de Lara—.
+Un 6% de estados mal asignados viola la regla que rige todo este diseño, así que la regla no se
+implementó.
+
+**Lo que sí se hizo, con el dato como árbitro:**
+
+- La semilla tenía errores: `BARUTA` y `CHACAO` apuntaban a DISTRITO CAPITAL cuando el archivo
+  dice MIRANDA en 2.689 de 2.689 filas etiquetadas. Corregidos junto a `EL HATILLO`.
+  `LA CANDELARIA` y `SAN MATEO` salieron por ambiguos.
+- Entraron las parroquias de Libertador y los pares con evidencia del 100%.
+- `NAN` y `LOCAL` pasaron a ciudad prohibida: sus filas se reparten entre varios estados.
+- **Mapa ciudad→estado aprendible** (IndexedDB v3) alimentado por un tipo de cola nuevo,
+  `CIUDAD_SIN_MAPEAR`. Es la única palanca posible para los nombres de ruta que cada distribuidor
+  inventa, y es segura por construcción porque decide un humano.
+- Las ciudades se ordenan por **filas**, no por TON. Son direcciones de local con TON de un
+  dígito; ordenarlas por TON sepultaba una ciudad de 730 filas debajo de una de 9.
+
+Resultado medido: estado válido **97,2% → 98,28%**, y la cola pasa de 0 a 150 ítems accionables
+que cubren 9.709 filas.
+
 ## Fuera de alcance
 
 - Sincronización entre dispositivos (el aprendizaje sigue siendo local por diseño).
