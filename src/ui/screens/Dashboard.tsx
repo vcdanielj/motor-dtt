@@ -44,7 +44,24 @@ export default function Dashboard() {
   const avgPost = Math.round(activeDists.reduce((acc, d) => acc + d.scdcPost, 0) / (activeDists.length || 1))
   const scdcGain = avgPost - avgCrudo
 
-  const clientesSinClasificarCount = hasRun ? runResult.clientesSinClasificar.length : 124
+  // Estado resolution mix, mirroring the segment split above. Grouped into the three buckets that
+  // matter to the analyst: what the distributor already sent usable, what the motor recovered, and
+  // what is still pending.
+  const estadoMix = hasRun
+    ? {
+        crudo: runResult.estado.EXACTO,
+        recuperado: runResult.estado.DICCIONARIO + runResult.estado.RIF + runResult.estado.CIUDAD + runResult.estado.FUZZY,
+        pendiente: runResult.estado.SIN_ESTADO,
+      }
+    : { crudo: 610240, recuperado: 85320, pendiente: 44449 }
+  const totalEstadoCount = estadoMix.crudo + estadoMix.recuperado + estadoMix.pendiente || 1
+  const estadoCrudoPct = Math.round((estadoMix.crudo / totalEstadoCount) * 100)
+  const estadoRecuperadoPct = Math.round((estadoMix.recuperado / totalEstadoCount) * 100)
+  const estadoPendientePct = 100 - estadoCrudoPct - estadoRecuperadoPct
+
+  const clientesPendientes = hasRun ? runResult.clientesSinClasificar : []
+  const clientesSinClasificarCount = hasRun ? clientesPendientes.length : 124
+  const faltaSoloEstado = clientesPendientes.filter((c) => c.faltaEstado && !c.faltaSegmento).length
 
   return (
     <div className="max-w-[1240px]">
@@ -147,6 +164,54 @@ export default function Dashboard() {
         </div>
       </Card>
 
+      {/* Global Estado Resolution Distribution — the estado twin of the segment split above. */}
+      <Card className="mt-3">
+        <div className="text-xs font-bold uppercase tracking-wider text-navy">Distribución de Resolución de Estados</div>
+        <div className="mt-3 flex h-6 overflow-hidden rounded-full bg-slate/10 font-mono text-[10px] text-white font-bold">
+          <div
+            className="flex items-center justify-center bg-navy"
+            style={{ width: `${estadoCrudoPct}%` }}
+            title={`Ya canónico en el archivo: ${estadoMix.crudo.toLocaleString('es-VE')} filas`}
+          >
+            {estadoCrudoPct > 10 && `CANÓNICO ${estadoCrudoPct}%`}
+          </div>
+          <div
+            className="flex items-center justify-center bg-red"
+            style={{ width: `${estadoRecuperadoPct}%` }}
+            title={`Recuperado por diccionario, RIF, ciudad o fuzzy: ${estadoMix.recuperado.toLocaleString('es-VE')} filas`}
+          >
+            {estadoRecuperadoPct > 10 && `RECUPERADO ${estadoRecuperadoPct}%`}
+          </div>
+          <div
+            className="flex items-center justify-center bg-slate text-slate-2"
+            style={{ width: `${estadoPendientePct}%` }}
+            title={`Sin estado: ${estadoMix.pendiente.toLocaleString('es-VE')} filas`}
+          >
+            {estadoPendientePct > 10 && `PENDIENTE ${estadoPendientePct}%`}
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-4 text-xs">
+          <div className="flex items-center gap-1.5 text-navy">
+            <span className="h-3 w-3 rounded bg-navy inline-block" />
+            <span>Enviado ya canónico: <strong>{estadoMix.crudo.toLocaleString('es-VE')}</strong> ({estadoCrudoPct}%)</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-red">
+            <span className="h-3 w-3 rounded bg-red inline-block" />
+            <span>Recuperado por el motor: <strong>{estadoMix.recuperado.toLocaleString('es-VE')}</strong> ({estadoRecuperadoPct}%)</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate">
+            <span className="h-3 w-3 rounded bg-slate inline-block" />
+            <span>Sin estado (pendientes): <strong>{estadoMix.pendiente.toLocaleString('es-VE')}</strong> ({estadoPendientePct}%)</span>
+          </div>
+        </div>
+        {hasRun && runResult.recuperadosEstado > 0 ? (
+          <p className="mt-2 text-[11px] text-slate">
+            Incluye <strong>{runResult.recuperadosEstado.toLocaleString('es-VE')}</strong> filas cuyo estado se
+            recuperó por RIF a partir del estado habitual del cliente en el maestro.
+          </p>
+        ) : null}
+      </Card>
+
       {/* SCDC Gain Info Card */}
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-lg border border-line bg-panel p-4 flex flex-col justify-between">
@@ -176,9 +241,12 @@ export default function Dashboard() {
       {clientesSinClasificarCount > 0 && (
         <div className="mt-3 rounded-lg border border-red/20 bg-red/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-red">Acción requerida: Clientes sin Clasificar</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-red">Acción requerida: Clientes Incompletos</h4>
             <p className="mt-1 text-xs text-slate">
-              La corrida identificó <strong>{clientesSinClasificarCount}</strong> clientes (RIFs) con segmento en blanco. Descarga las plantillas por distribuidor para su corrección.
+              La corrida identificó <strong>{clientesSinClasificarCount}</strong> clientes (RIFs) a los que les falta
+              el segmento, el estado o ambos
+              {faltaSoloEstado > 0 ? <> — <strong>{faltaSoloEstado}</strong> solo por el estado</> : null}.
+              Descarga las plantillas por distribuidor para su corrección.
             </p>
           </div>
           <button

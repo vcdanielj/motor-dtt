@@ -29,6 +29,11 @@ test('fallback path (no showSaveFilePicker): creates+clicks a download anchor, n
   expect(outcome).toBe('fallback')
   expect(createdFor).toBe(blob)
   expect(clicked).toBe(true)
+
+  // The object URL is revoked on the next task, not synchronously — revoking before the browser
+  // has read the blob cancels the download on Firefox/Safari.
+  expect(revokedUrl).toBeUndefined()
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(revokedUrl).toBe('blob:fake-url')
 
   HTMLAnchorElement.prototype.click = originalClick

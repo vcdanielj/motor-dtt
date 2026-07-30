@@ -219,7 +219,11 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
   // ciudad) crudo triple. RIF is excluded on purpose: with an empty maestro/estadoByRif in pass 1
   // it cannot change the outcome, and including it would make the cache useless (one entry per
   // client). The end-of-pass recovery re-applies what the RIF would have contributed.
+  //
+  // Capped because the key space is multiplicative: a file with many distinct cities could
+  // otherwise grow this without bound. Past the cap rows still resolve, just uncached.
   const rowCache = new Map<string, ResolvedRow>()
+  const ROW_CACHE_MAX = 50_000
   const segmento: MethodTally = { MAESTRO: 0, EXACTO: 0, FUZZY: 0, SIN_CLASIFICAR: 0 }
   const estado: EstadoTally = newEstadoTally()
   // Maestro (M2): built during the same pass from resolved rows, then used at the end to
@@ -279,12 +283,14 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     const distribuidor = (distCol ? rec[distCol] : '')?.trim() || 'SIN_DISTRIBUIDOR'
 
     const segKey = normalizeText(segCrudo)
-    const cacheKey = `${segKey} ${normalizeText(estCrudo)} ${normalizeText(ciudad)}`
+    // '|' is safe as the separator: normalizeText rewrites it to ' / ', so no part can contain
+    // one and ('A B','C') cannot collide with ('A','B C') the way a space separator would allow.
+    const cacheKey = `${segKey}|${normalizeText(estCrudo)}|${normalizeText(ciudad)}`
     let cached = rowCache.get(cacheKey)
     if (!cached) {
       // rif is null on purpose — see the rowCache comment above.
       cached = processRow({ rif: null, segmentoCrudo: segCrudo, estadoCrudo: estCrudo, ciudad }, seg, est)
-      rowCache.set(cacheKey, cached)
+      if (rowCache.size < ROW_CACHE_MAX) rowCache.set(cacheKey, cached)
     }
     // The cached ResolvedRow carries the crudo values of the FIRST row that produced it; those are
     // identical up to normalization but not byte-identical, and the export column must echo this

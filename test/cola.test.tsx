@@ -109,3 +109,44 @@ test('empty cola shows the empty state', () => {
   render(<Cola />)
   expect(screen.getByText(/No hay elementos en la cola de revisión\./)).toBeInTheDocument()
 })
+
+test('an ESTADO item offers the 24 estados, not the segment catalog', () => {
+  useStore.setState({
+    cola: [{
+      id: 'e1',
+      dominio: 'ESTADO',
+      tipo: 'ESTADO_VARIANTE_NUEVA',
+      valorCrudo: 'NVA ESPARTAA',
+      registrosAfectados: 10,
+      tonAfectadas: 4,
+      sugerenciaFuzzy: { valor: 'NUEVA ESPARTA', score: 88 },
+      resolucion: null,
+    }],
+  })
+  render(<Cola />)
+
+  const select = screen.getByLabelText(/Clasificar como… \(NVA ESPARTAA\)/)
+  const options = within(select).getAllByRole('option').map((o) => o.textContent)
+  expect(options).toContain('ZULIA')
+  expect(options).toContain('NUEVA ESPARTA')
+  expect(options).not.toContain('BODEGA')
+  expect(screen.getByText(/Usar sugerencia: NUEVA ESPARTA \(88\)/)).toBeInTheDocument()
+})
+
+test('the domain filter narrows the list and the counts reflect both domains', () => {
+  useStore.setState({
+    cola: [
+      { id: 's1', dominio: 'SEGMENTO', tipo: 'ALTO_VOLUMEN_SIN_CLASIFICAR', valorCrudo: 'TIENDA X', registrosAfectados: 1, tonAfectadas: 9, sugerenciaFuzzy: null, resolucion: null },
+      { id: 'e1', dominio: 'ESTADO', tipo: 'ESTADO_SIN_RESOLVER', valorCrudo: 'ZONA X', registrosAfectados: 1, tonAfectadas: 1, sugerenciaFuzzy: null, resolucion: null },
+    ],
+  })
+  render(<Cola />)
+
+  expect(screen.getByRole('button', { name: /Todos \(2\)/ })).toBeInTheDocument()
+  expect(screen.getByText('TIENDA X')).toBeInTheDocument()
+  expect(screen.getByText('ZONA X')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: /Estado \(1\)/ }))
+  expect(screen.queryByText('TIENDA X')).not.toBeInTheDocument()
+  expect(screen.getByText('ZONA X')).toBeInTheDocument()
+})

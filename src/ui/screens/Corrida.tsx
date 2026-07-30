@@ -109,6 +109,9 @@ export default function Corrida() {
                   >
                     Descargar plantillas por distribuidor (ZIP)
                   </button>
+                  <span className="text-[11px] text-slate">
+                    Piden segmento y estado, con desplegables validados contra los catálogos oficiales.
+                  </span>
                 </>
               )}
               {exportState === 'running' && (

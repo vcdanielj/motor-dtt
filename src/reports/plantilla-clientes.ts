@@ -179,7 +179,10 @@ export function buildClientesWorkbook(
 
 // ── Parsing ────────────────────────────────────────────────────────────────────────────────────
 
-const normHeader = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+// Strips diacritics BEFORE dropping non-alphanumerics — otherwise 'Razón Social' collapses to
+// 'raznsocial' and never matches its alias.
+const normHeader = (s: string) =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
 
 const ALIAS_RIF = ['rif', 'numeroderif', 'nrif', 'cedula', 'rifcliente']
 const ALIAS_SEGMENTO = ['tipodetienda', 'segmentodetienda', 'tipo', 'segmento', 'segmenton3', 'canal']

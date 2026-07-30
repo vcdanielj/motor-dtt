@@ -38,13 +38,21 @@ export interface MaestroRecoveryResult {
 export function applyMaestroRecovery(input: MaestroRecoveryInput): MaestroRecoveryResult {
   const { unresueltoPorRif, unresueltoDistRif, maestro } = input
 
+  // The maestro can also hold estado-only entries (a client whose state resolved but whose segment
+  // never did). Those recover STATES, not segments — counting them here would inflate the
+  // classification rate with rows that still have no segment.
+  const clasificaElSegmento = (rifKey: string): boolean => {
+    const entry = maestro.get(rifKey)
+    return entry != null && ((entry.segmentoN3 ?? '') !== '' || (entry.macroN1 ?? '') !== '')
+  }
+
   let recuperados = 0
   let sinClasificar = input.segmento.SIN_CLASIFICAR
   let maestroCount = input.segmento.MAESTRO
   let tonSinClasificar = input.tonSinClasificar
 
   for (const [rifKey, tally] of unresueltoPorRif) {
-    if (!maestro.has(rifKey)) continue
+    if (!clasificaElSegmento(rifKey)) continue
     recuperados += tally.count
     sinClasificar -= tally.count
     maestroCount += tally.count
@@ -55,7 +63,7 @@ export function applyMaestroRecovery(input: MaestroRecoveryInput): MaestroRecove
   for (const [distribuidor, rifCounts] of unresueltoDistRif) {
     let total = 0
     for (const [rifKey, count] of rifCounts) {
-      if (maestro.has(rifKey)) total += count
+      if (clasificaElSegmento(rifKey)) total += count
     }
     if (total > 0) recuperadosPorDist.set(distribuidor, total)
   }
