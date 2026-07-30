@@ -50,6 +50,7 @@ self.onmessage = async (
     // Defaulted below so callers that omit them (existing tests, the counting path) are unaffected.
     diccionario?: DiccionarioEntry[]
     estadoDiccionario?: EstadoDiccionarioEntry[]
+    ciudadEstado?: Record<string, string>
     manualMaestro?: MaestroEntry[]
     // Editable fuzzy thresholds (Sprint 2 · C3), persisted in IndexedDB meta. Defaulted to the
     // long-standing 92/80 so callers that omit them (existing tests, the counting path) behave
@@ -62,6 +63,7 @@ self.onmessage = async (
   const cfg: ResolutionConfig = {
     diccionario: ev.data.diccionario ?? SEEDS.diccionario,
     estadoDiccionario: ev.data.estadoDiccionario ?? SEEDS.estadoDiccionario,
+    ciudadEstado: ev.data.ciudadEstado ?? SEEDS.ciudadEstado,
     manualMaestro: ev.data.manualMaestro ?? [],
     fuzzyThreshold: ev.data.fuzzyThreshold ?? 92,
     fuzzySuggestFloor: ev.data.fuzzySuggestFloor ?? 80,
@@ -78,6 +80,7 @@ self.onmessage = async (
 interface ResolutionConfig {
   diccionario: DiccionarioEntry[]
   estadoDiccionario: EstadoDiccionarioEntry[]
+  ciudadEstado: Record<string, string>
   manualMaestro: MaestroEntry[]
   fuzzyThreshold: number
   fuzzySuggestFloor: number
@@ -94,7 +97,7 @@ function buildSegmentoContext(cfg: ResolutionConfig, maestro: Map<string, Maestr
 
 function buildEstadoCtx(cfg: ResolutionConfig, estadoByRif = new Map<string, string>()): EstadoContext {
   return buildEstadoContext(
-    SEEDS.estados, SEEDS.ciudadEstado, estadoByRif, cfg.estadoDiccionario,
+    SEEDS.estados, cfg.ciudadEstado, estadoByRif, cfg.estadoDiccionario,
     cfg.fuzzyThreshold, cfg.fuzzySuggestFloor,
   )
 }
@@ -136,16 +139,25 @@ async function runCounting(file: File) {
   let schema: SchemaMap | null = null
   let badSchema = false
   let rows = 0
-  const owners = new Set<string>()
+  let distCol: string | null = null
+  const clientes = new Set<string>()
+  const distribuidoresVistos = new Set<string>()
   const started = performance.now()
   // Incremental for CSV via PapaParse's cursor; XLSX is fully buffered (no cursor) so it stays at file.size.
   let bytesRead = file.size
-  const bump = () => post({ type: 'progress', rows, distributors: owners.size, bytesRead })
+  const bump = () => post({ type: 'progress', rows, distributors: distribuidoresVistos.size, clientes: clientes.size, bytesRead })
 
-  const onHeaders = (headers: string[]) => { schema = detectSchema(headers) }
+  const onHeaders = (headers: string[]) => {
+    schema = detectSchema(headers)
+    distCol =
+      headers.find((h) => /distribuidor/i.test(h) && !/jde/i.test(h)) ??
+      headers.find((h) => /distribuidor/i.test(h)) ??
+      null
+  }
   const onRow = (rec: Record<string, string>) => {
     rows++
-    if (schema?.rif) { const v = normalizeText(rec[schema.rif] ?? ''); if (v) owners.add(v) }
+    if (schema?.rif) { const v = normalizeText(rec[schema.rif] ?? ''); if (v) clientes.add(v) }
+    distribuidoresVistos.add((distCol ? rec[distCol] : '')?.trim() || 'SIN_DISTRIBUIDOR')
     if (rows % 5000 === 0) bump()
   }
 
@@ -187,7 +199,8 @@ async function runCounting(file: File) {
   if (rows === 0 || !schema) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados' })
   const finished = performance.now()
   const summary: IngestSummary = {
-    fileName: file.name, fileKind: kind, totalRows: rows, distributors: owners.size,
+    fileName: file.name, fileKind: kind, totalRows: rows,
+    distributors: distribuidoresVistos.size, clientes: clientes.size,
     bytes: file.size, schema, headerRowCount: 1,
     startedAt: 0, finishedAt: 0, durationMs: Math.round(finished - started),
   }
@@ -248,10 +261,11 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
   let crudoPresent = 0
   let tonTotal = 0
   let tonSinClasificar = 0
-  const owners = new Set<string>()
+  const clientes = new Set<string>()
+  const distribuidoresVistos = new Set<string>()
   const started = performance.now()
   let bytesRead = file.size
-  const bump = () => post({ type: 'progress', rows, distributors: owners.size, bytesRead })
+  const bump = () => post({ type: 'progress', rows, distributors: distribuidoresVistos.size, clientes: clientes.size, bytesRead })
 
   const onHeaders = (headers: string[]) => {
     schema = detectSchema(headers)
@@ -303,7 +317,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     const flagRegistro = resolved.flagRegistro
 
     rows++
-    if (s.rif) { const v = normalizeText(rif); if (v) owners.add(v) }
+    if (s.rif) { const v = normalizeText(rif); if (v) clientes.add(v) }
+    distribuidoresVistos.add(distribuidor)
     if (segKey) crudoPresent++
     tonTotal += Number.isFinite(ton) ? ton : 0
     if (flagRegistro === 'SIN_CLASIFICAR') tonSinClasificar += ton
@@ -312,6 +327,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     metrics.add(distribuidor, resolved, ton)
     cola.addSegmento(segCrudo, resolved, ton)
     cola.addEstado(estCrudo, resolved, ton)
+    cola.addCiudad(ciudad, resolved, ton)
 
     const rifKey = normalizeRif(rif)
 
@@ -441,7 +457,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
   try {
     const finished = performance.now()
     const summary: IngestSummary = {
-      fileName: file.name, fileKind: kind, totalRows: rows, distributors: owners.size,
+      fileName: file.name, fileKind: kind, totalRows: rows,
+      distributors: distribuidoresVistos.size, clientes: clientes.size,
       bytes: file.size, schema, headerRowCount: 1,
       startedAt: 0, finishedAt: 0, durationMs: Math.round(finished - started),
     }
@@ -472,7 +489,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
 
     // Stages 1-4 are done — stream is finished, all row-level resolution complete.
     const fmt = new Intl.NumberFormat('es-VE')
-    post({ type: 'stage', stageIndex: 0, status: 'done', detail: `${fmt.format(rows)} filas · ${fmt.format(owners.size)} distribuidores` })
+    post({ type: 'stage', stageIndex: 0, status: 'done', detail: `${fmt.format(rows)} filas · ${fmt.format(distribuidoresVistos.size)} distribuidores · ${fmt.format(clientes.size)} clientes` })
     post({ type: 'stage', stageIndex: 1, status: 'done', detail: `${rowCache.size} combinaciones normalizadas` })
     post({ type: 'stage', stageIndex: 2, status: 'done', detail: `${fmt.format(segmento.EXACTO + segmento.FUZZY)} resueltos · ${fmt.format(segmento.SIN_CLASIFICAR)} pendientes` })
     post({ type: 'stage', stageIndex: 3, status: 'done', detail: `${finalEstadoValidoPct}% estado válido` })
@@ -516,9 +533,10 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     }))
     // cola.build caps per domain, so unresolved states can never be crowded out by a long tail of
     // unresolved segments. Conflicts are appended whole — they are bounded by the client count.
-    const colaMerged = [...cola.build(150), ...conflictoItems]
-      .sort((a, b) => b.tonAfectadas - a.tonAfectadas)
-      .slice(0, 400)
+    // cola.build already ranked each item by what deciding it buys (TON for segments/states,
+    // rows for cities) and capped per domain. Conflicts carry no TON, so they go after the ranked
+    // items rather than being folded into a TON sort that would scatter them.
+    const colaMerged = [...cola.build(150), ...conflictoItems].slice(0, 400)
 
     // A client is still pending if the maestro could not fill in what its rows were missing:
     // no maestro segment covers faltaSegmento, no habitual estado covers faltaEstado.
@@ -623,13 +641,13 @@ async function runExport(file: File, versionDiccionario: string, runId: string, 
       (rec) => {
         parts.push(exportRowLine(rec, headers, schemaB!, seg, estWithRif, versionDiccionario, runId) + '\n')
         rows++
-        if (rows % 5000 === 0) post({ type: 'progress', rows, distributors: 0, bytesRead: file.size })
+        if (rows % 5000 === 0) post({ type: 'progress', rows, distributors: 0, clientes: 0, bytesRead: file.size })
       },
     )
     if (passB === 'bad-schema') return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento y estado' })
     if (rows === 0 || !schemaB) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados' })
 
-    post({ type: 'progress', rows, distributors: 0, bytesRead: file.size })
+    post({ type: 'progress', rows, distributors: 0, clientes: 0, bytesRead: file.size })
     const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' })
     post({ type: 'export', blob, rows })
   } catch (err) {

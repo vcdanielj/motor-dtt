@@ -115,13 +115,13 @@ describe('resetLearned', () => {
       confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
     await useStore.getState().refreshLearned()
-    expect(useStore.getState().learned).toEqual({ diccionario: 1, estadoDiccionario: 0, maestro: 1 })
+    expect(useStore.getState().learned).toEqual({ diccionario: 1, estadoDiccionario: 0, ciudadEstado: 0, maestro: 1 })
 
     await useStore.getState().resetLearned()
 
     expect(await getLearnedDiccionario()).toEqual([])
     expect(await getManualMaestro()).toEqual([])
-    expect(useStore.getState().learned).toEqual({ diccionario: 0, estadoDiccionario: 0, maestro: 0 })
+    expect(useStore.getState().learned).toEqual({ diccionario: 0, estadoDiccionario: 0, ciudadEstado: 0, maestro: 0 })
   })
 })
 
@@ -207,7 +207,7 @@ describe('exportUnclassifiedZip', () => {
       runId: 'test-run-123',
       runResult: {
         summary: {
-          fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 2, bytes: 10,
+          fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 2, clientes: 10, bytes: 10,
           schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] },
           headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
         },

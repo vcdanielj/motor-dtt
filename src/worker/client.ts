@@ -8,6 +8,7 @@ import type { MaestroEntry } from '@/contracts/maestro'
 export interface LearnedConfig {
   diccionario: DiccionarioEntry[]
   estadoDiccionario: EstadoDiccionarioEntry[]
+  ciudadEstado: Record<string, string>
   manualMaestro: MaestroEntry[]
 }
 
@@ -51,7 +52,7 @@ export function runPipeline(
     worker.postMessage({
       file, mode: 'pipeline',
       diccionario: learned?.diccionario, estadoDiccionario: learned?.estadoDiccionario,
-      manualMaestro: learned?.manualMaestro,
+      ciudadEstado: learned?.ciudadEstado, manualMaestro: learned?.manualMaestro,
       fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })
@@ -80,7 +81,7 @@ export function runExport(
     worker.postMessage({
       file, mode: 'export', versionDiccionario, runId,
       diccionario: learned?.diccionario, estadoDiccionario: learned?.estadoDiccionario,
-      manualMaestro: learned?.manualMaestro,
+      ciudadEstado: learned?.ciudadEstado, manualMaestro: learned?.manualMaestro,
       fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })

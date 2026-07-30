@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '@/state/store'
 import { SearchBox, SubTab, TrashIcon } from './icons'
 
-type Sub = 'diccionario' | 'estados' | 'maestro'
+type Sub = 'diccionario' | 'estados' | 'ciudades' | 'maestro'
 
 /** Case-insensitive "any field contains the query"; an empty query matches everything. Defined at
  *  module scope so it is a stable reference and the memos can depend on (list, query) alone. */
@@ -14,9 +14,11 @@ const matches = (q: string, ...fields: (string | null)[]) =>
 export default function AprendizajeTab({ showToast }: { showToast: (msg: string) => void }) {
   const learnedDiccionarioList = useStore((s) => s.learnedDiccionarioList)
   const learnedEstadoList = useStore((s) => s.learnedEstadoList)
+  const learnedCiudadList = useStore((s) => s.learnedCiudadList)
   const manualMaestroList = useStore((s) => s.manualMaestroList)
   const deleteLearnedDiccionario = useStore((s) => s.deleteLearnedDiccionario)
   const deleteLearnedEstado = useStore((s) => s.deleteLearnedEstado)
+  const deleteLearnedCiudad = useStore((s) => s.deleteLearnedCiudad)
   const deleteManualMaestro = useStore((s) => s.deleteManualMaestro)
 
   const [sub, setSub] = useState<Sub>('diccionario')
@@ -32,6 +34,10 @@ export default function AprendizajeTab({ showToast }: { showToast: (msg: string)
   const estados = useMemo(
     () => learnedEstadoList.filter((e) => matches(q, e.variante, e.estadoStd)),
     [learnedEstadoList, q],
+  )
+  const ciudades = useMemo(
+    () => learnedCiudadList.filter((c) => matches(q, c.ciudad, c.estadoStd)),
+    [learnedCiudadList, q],
   )
   const maestro = useMemo(
     () => manualMaestroList.filter((m) => matches(q, m.rif, m.razonSocial, m.segmentoN3, m.macroN1, m.estadoHabitual)),
@@ -70,6 +76,9 @@ export default function AprendizajeTab({ showToast }: { showToast: (msg: string)
             </SubTab>
             <SubTab active={sub === 'estados'} onClick={() => cambiar('estados')}>
               Estados Aprendidos ({estados.length})
+            </SubTab>
+            <SubTab active={sub === 'ciudades'} onClick={() => cambiar('ciudades')}>
+              Ciudades Aprendidas ({ciudades.length})
             </SubTab>
             <SubTab active={sub === 'maestro'} onClick={() => cambiar('maestro')}>
               Maestro Manual ({maestro.length})
@@ -166,6 +175,60 @@ export default function AprendizajeTab({ showToast }: { showToast: (msg: string)
                           )}
                           className="p-1 rounded text-red hover:bg-red/10 transition-all hover:text-red-deep disabled:opacity-40"
                           title="Eliminar variante de estado"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className={sub === 'ciudades' ? '' : 'hidden'}>
+          <p className="text-[11px] text-slate mb-2">
+            Ciudades, parroquias o nombres de ruta que le enseñaste al motor desde la cola. Es la
+            única palanca para los nombres que cada distribuidor inventa —
+            «EL PARAISO / LAS FUENTES», «CATIA / MANICOMIO»— y que ninguna semilla puede anticipar.
+          </p>
+          <div className="max-h-[440px] overflow-y-auto border border-line rounded-lg">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-bg text-slate font-bold sticky top-0 uppercase border-b border-line">
+                <tr>
+                  <th className="px-4 py-2.5">Ciudad</th>
+                  <th className="px-4 py-2.5">Estado Asignado</th>
+                  <th className="px-4 py-2.5 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {ciudades.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-12 text-center text-slate">
+                      {vacio(
+                        'No hay ciudades aprendidas',
+                        'Cuando resuelvas ítems «Ciudad sin mapear» en la cola de revisión se listarán aquí.',
+                        learnedCiudadList.length > 0,
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  ciudades.map((item) => (
+                    <tr key={item.ciudad} className="hover:bg-bg/40">
+                      <td className="px-4 py-2 font-mono font-bold text-navy">{item.ciudad}</td>
+                      <td className="px-4 py-2 text-ink font-semibold">{item.estadoStd}</td>
+                      <td className="px-4 py-2 text-center">
+                        <button
+                          type="button"
+                          disabled={deletingId === item.ciudad}
+                          onClick={() => void borrar(
+                            item.ciudad,
+                            () => deleteLearnedCiudad(item.ciudad),
+                            `Ciudad "${item.ciudad}" eliminada del mapa aprendido.`,
+                          )}
+                          className="p-1 rounded text-red hover:bg-red/10 transition-all hover:text-red-deep disabled:opacity-40"
+                          title="Eliminar ciudad aprendida"
                         >
                           <TrashIcon />
                         </button>

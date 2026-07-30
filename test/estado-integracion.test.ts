@@ -2,12 +2,13 @@ import 'fake-indexeddb/auto'
 import { test, expect, describe, beforeEach } from 'vitest'
 import { SEEDS } from '@/seeds'
 import { createColaAccumulator } from '@/pipeline/cola'
+import { buildEstadoContext, resolveEstado } from '@/pipeline/estado'
 import { applyEstadoRecovery } from '@/pipeline/recovery'
 import { MetricsAccumulator, newEstadoTally } from '@/pipeline/metrics'
-import { mergeEstadoDiccionario } from '@/storage/run-config'
+import { mergeCiudadEstado, mergeEstadoDiccionario } from '@/storage/run-config'
 import { loadRunConfig } from '@/storage/run-config'
 import { normalizeText } from '@/ingest/normalize'
-import { clearLearned, getLearnedEstados, putLearnedEstado } from '@/storage/db'
+import { clearLearned, getLearnedCiudades, getLearnedEstados, putLearnedEstado } from '@/storage/db'
 import { useStore } from '@/state/store'
 import type { ResolvedRow } from '@/pipeline/process-row'
 import type { MaestroEntry } from '@/contracts/maestro'
@@ -266,5 +267,156 @@ describe('store — estado learning end to end', () => {
     await useStore.getState().resetLearned()
     expect(await getLearnedEstados()).toEqual([])
     expect(useStore.getState().learned.estadoDiccionario).toBe(0)
+  })
+})
+
+describe('cola accumulator — ciudad domain', () => {
+  test('an unknown city on an unresolved row becomes CIUDAD_SIN_MAPEAR', () => {
+    const cola = createColaAccumulator()
+    cola.addCiudad('EL PARAISO / LAS FUENTES', sinEstado(), 12)
+    expect(cola.build()[0]).toMatchObject({
+      dominio: 'ESTADO',
+      tipo: 'CIUDAD_SIN_MAPEAR',
+      valorCrudo: 'EL PARAISO / LAS FUENTES',
+      tonAfectadas: 12,
+    })
+  })
+
+  test('a row whose state DID resolve produces no city item — the city taught us nothing', () => {
+    const cola = createColaAccumulator()
+    cola.addCiudad('EL PARAISO', row(), 12)
+    expect(cola.build()).toEqual([])
+  })
+
+  // Verified against a 740K-row file: rows carrying these spread across several estados, so they
+  // identify nothing and would only pollute the queue.
+  test.each([['NAN'], ['LOCAL'], ['N/A'], [''], ['-']])(
+    'the placeholder city %s never reaches the queue',
+    (ciudad) => {
+      const cola = createColaAccumulator()
+      cola.addCiudad(ciudad, sinEstado(), 100)
+      expect(cola.build()).toEqual([])
+    },
+  )
+
+  test('cities are grouped and ranked by TON so one decision fixes the most rows', () => {
+    const cola = createColaAccumulator()
+    cola.addCiudad('CIUDAD CHICA', sinEstado(), 1)
+    cola.addCiudad('CIUDAD GRANDE', sinEstado(), 50)
+    cola.addCiudad('CIUDAD GRANDE', sinEstado(), 50)
+    const items = cola.build()
+    expect(items[0]).toMatchObject({ valorCrudo: 'CIUDAD GRANDE', registrosAfectados: 2, tonAfectadas: 100 })
+  })
+})
+
+describe('cola accumulator — segmento junk', () => {
+  // Excel error values reached the queue as if they were segment variants to map.
+  test.each([['#NAME?'], ['#REF!'], ['#VALUE!'], ['NAN'], ['NULL'], ['SIN CLASIFICAR']])(
+    'the junk value %s never reaches the queue',
+    (crudo) => {
+      const cola = createColaAccumulator()
+      cola.addSegmento(crudo, sinEstado({ flagRegistro: 'SIN_CLASIFICAR', segmentoN3: null, metodoSegmento: null }), 100)
+      expect(cola.build()).toEqual([])
+    },
+  )
+
+  test('a genuine catch-all like OTROS DOES reach the queue — that one is worth a decision', () => {
+    const cola = createColaAccumulator()
+    cola.addSegmento('OTROS', sinEstado({ flagRegistro: 'SIN_CLASIFICAR', segmentoN3: null, metodoSegmento: null }), 100)
+    expect(cola.build()[0]).toMatchObject({ valorCrudo: 'OTROS', dominio: 'SEGMENTO' })
+  })
+})
+
+describe('mergeCiudadEstado', () => {
+  test('a learned city overrides the seed and new ones are added, all normalized', () => {
+    const merged = mergeCiudadEstado(
+      { CARACAS: 'DISTRITO CAPITAL', MARACAIBO: 'ZULIA' },
+      [
+        { ciudad: 'caracas', estadoStd: 'MIRANDA', activa: true },
+        { ciudad: 'El Paraiso', estadoStd: 'DISTRITO CAPITAL', activa: true },
+      ],
+    )
+    expect(merged['CARACAS']).toBe('MIRANDA')
+    expect(merged['MARACAIBO']).toBe('ZULIA')
+    expect(merged['EL PARAISO']).toBe('DISTRITO CAPITAL')
+  })
+
+  test('inactive learned entries are ignored', () => {
+    const merged = mergeCiudadEstado({ CARACAS: 'DISTRITO CAPITAL' }, [
+      { ciudad: 'CARACAS', estadoStd: 'MIRANDA', activa: false },
+    ])
+    expect(merged['CARACAS']).toBe('DISTRITO CAPITAL')
+  })
+})
+
+describe('store — resolving a CIUDAD_SIN_MAPEAR item', () => {
+  beforeEach(async () => {
+    await clearLearned()
+    await useStore.getState().refreshLearned()
+  })
+
+  test('writes a learned city mapping that the next run picks up', async () => {
+    useStore.setState({
+      cola: [{
+        id: 'ciudad_sin_mapear-el-paraiso',
+        dominio: 'ESTADO',
+        tipo: 'CIUDAD_SIN_MAPEAR',
+        valorCrudo: 'EL PARAISO / LAS FUENTES',
+        registrosAfectados: 315,
+        tonAfectadas: 5,
+        sugerenciaFuzzy: null,
+        resolucion: null,
+      }],
+    })
+
+    await useStore.getState().resolveColaItem('ciudad_sin_mapear-el-paraiso', 'DISTRITO CAPITAL')
+
+    expect(await getLearnedCiudades()).toEqual([
+      { ciudad: 'EL PARAISO / LAS FUENTES', estadoStd: 'DISTRITO CAPITAL', activa: true },
+    ])
+    expect(useStore.getState().learned.ciudadEstado).toBe(1)
+
+    // …and the next run's config resolves that city.
+    const config = await loadRunConfig()
+    expect(config.ciudadEstado['EL PARAISO / LAS FUENTES']).toBe('DISTRITO CAPITAL')
+    const ctx = buildEstadoContext(SEEDS.estados, config.ciudadEstado, new Map(), config.estadoDiccionario)
+    expect(resolveEstado({ rif: null, ciudad: 'El Paraiso / Las Fuentes', estadoCrudo: 'NO IDENTIFICADO' }, ctx))
+      .toMatchObject({ estadoStd: 'DISTRITO CAPITAL', metodo: 'CIUDAD' })
+  })
+
+  test('a value outside the 24-estado catalog is rejected', async () => {
+    useStore.setState({
+      cola: [{
+        id: 'c', dominio: 'ESTADO', tipo: 'CIUDAD_SIN_MAPEAR', valorCrudo: 'X',
+        registrosAfectados: 1, tonAfectadas: 1, sugerenciaFuzzy: null, resolucion: null,
+      }],
+    })
+    await useStore.getState().resolveColaItem('c', 'NO ES UN ESTADO')
+    expect(await getLearnedCiudades()).toEqual([])
+  })
+})
+
+describe('cola ranking — cada tipo se ordena por lo que su decisión compra', () => {
+  // Storefront addresses carry single-digit TON by nature, so ranking cities by TON buried a city
+  // worth 730 rows under one worth 9. What a city decision buys is coverage.
+  test('las ciudades se ordenan por filas, no por TON', () => {
+    const cola = createColaAccumulator()
+    cola.addCiudad('CIUDAD MUCHAS FILAS', sinEstado(), 1)
+    for (let i = 0; i < 9; i++) cola.addCiudad('CIUDAD MUCHAS FILAS', sinEstado(), 1)
+    cola.addCiudad('CIUDAD MUCHO TON', sinEstado(), 500)
+
+    const ciudades = cola.build().filter((i) => i.tipo === 'CIUDAD_SIN_MAPEAR')
+    expect(ciudades[0].valorCrudo).toBe('CIUDAD MUCHAS FILAS')
+    expect(ciudades[0].registrosAfectados).toBe(10)
+  })
+
+  test('los segmentos y estados siguen ordenándose por TON', () => {
+    const cola = createColaAccumulator()
+    const sc = sinEstado({ flagRegistro: 'SIN_CLASIFICAR', segmentoN3: null, metodoSegmento: null })
+    for (let i = 0; i < 9; i++) cola.addSegmento('MUCHAS FILAS', sc, 1)
+    cola.addSegmento('MUCHO TON', sc, 500)
+
+    const segs = cola.build().filter((i) => i.dominio === 'SEGMENTO')
+    expect(segs[0].valorCrudo).toBe('MUCHO TON')
   })
 })

@@ -3,20 +3,46 @@
 //
 // Inclusion rule: a name goes in ONLY if it identifies exactly one estado in commercial practice.
 // Names that repeat across estados — San Carlos, Libertador, Bolívar, La Victoria, Independencia,
-// Lagunillas, Santa Rita, La Concepción, Sabaneta — are deliberately absent: a wrong estado is
-// worse than SIN_ESTADO, and unresolved values reach the cola for an analyst to map explicitly.
+// Lagunillas, Santa Rita, La Concepción, Sabaneta, La Candelaria, San Mateo — are deliberately
+// absent: a wrong estado is worse than SIN_ESTADO, and unresolved values reach the cola as
+// CIUDAD_SIN_MAPEAR for an analyst to map explicitly (and permanently).
+//
+// Entries marked "(verificado)" were cross-checked against a 740K-row Heinz sell-out file: the
+// rows that DO carry a state agreed on the value shown, at the share noted.
 export const CIUDAD_ESTADO: Record<string, string> = {
-  // ── Distrito Capital ──
+  // ── Distrito Capital — parroquias del municipio Libertador ──
   CARACAS: 'DISTRITO CAPITAL',
   'CIUDAD DE CARACAS': 'DISTRITO CAPITAL',
-  CHACAO: 'DISTRITO CAPITAL',
-  BARUTA: 'DISTRITO CAPITAL',
-  'EL HATILLO': 'DISTRITO CAPITAL',
-  'LA CANDELARIA': 'DISTRITO CAPITAL',
   CATIA: 'DISTRITO CAPITAL',
+  'EL JUNQUITO': 'DISTRITO CAPITAL',
+  ANTIMANO: 'DISTRITO CAPITAL',
+  CARICUAO: 'DISTRITO CAPITAL',
+  PROPATRIA: 'DISTRITO CAPITAL',
+  'QUINTA CRESPO': 'DISTRITO CAPITAL',
+  'LAS ADJUNTAS': 'DISTRITO CAPITAL',
+  'EL PARAISO': 'DISTRITO CAPITAL',
+  'LA VEGA': 'DISTRITO CAPITAL',
+  'SAN AGUSTIN': 'DISTRITO CAPITAL',
+  'SAN AGUSTIN SUR': 'DISTRITO CAPITAL',
+  'LA PASTORA': 'DISTRITO CAPITAL',
+  'EL RECREO': 'DISTRITO CAPITAL',
+  'EL CEMENTERIO': 'DISTRITO CAPITAL',
+  MACARAO: 'DISTRITO CAPITAL',
 
-  // ── Miranda ──
+  // ── Miranda — Baruta, Chacao, El Hatillo y Sucre son municipios de MIRANDA, no del Distrito
+  //    Capital, aunque comercialmente se hable de «Gran Caracas». (verificado: BARUTA 1.895/1.895
+  //    y CHACAO 794/794 de las filas con estado conocido dicen MIRANDA.) ──
+  BARUTA: 'MIRANDA',
+  CHACAO: 'MIRANDA',
+  'EL HATILLO': 'MIRANDA',
   PETARE: 'MIRANDA',
+  'FILAS DE MARICHE': 'MIRANDA',
+  MESUCA: 'MIRANDA',
+  'PALO VERDE': 'MIRANDA',
+  SEBUCAN: 'MIRANDA',
+  BOLEITA: 'MIRANDA',
+  'LOS DOS CAMINOS': 'MIRANDA',
+  CARTANAL: 'MIRANDA',
   'LOS TEQUES': 'MIRANDA',
   GUARENAS: 'MIRANDA',
   GUATIRE: 'MIRANDA',
@@ -37,6 +63,8 @@ export const CIUDAD_ESTADO: Record<string, string> = {
   'CATIA LA MAR': 'VARGAS',
   MACUTO: 'VARGAS',
   CARABALLEDA: 'VARGAS',
+  CARAYACA: 'VARGAS',              // verificado: 529/529
+  NAIGUATA: 'VARGAS',
 
   // ── Zulia ──
   MARACAIBO: 'ZULIA',
@@ -67,7 +95,6 @@ export const CIUDAD_ESTADO: Record<string, string> = {
   CAGUA: 'ARAGUA',
   'EL LIMON': 'ARAGUA',
   'VILLA DE CURA': 'ARAGUA',
-  'SAN MATEO': 'ARAGUA',
   'PALO NEGRO': 'ARAGUA',
   'SANTA CRUZ DE ARAGUA': 'ARAGUA',
   'COLONIA TOVAR': 'ARAGUA',
@@ -88,6 +115,8 @@ export const CIUDAD_ESTADO: Record<string, string> = {
   'PUERTO ORDAZ': 'BOLIVAR',
   'PTO ORDAZ': 'BOLIVAR',
   'SAN FELIX': 'BOLIVAR',
+  'SAN FELIX BOLIVAR': 'BOLIVAR',      // verificado: 626/626
+  'PUERTO ORDAZ BOLIVAR': 'BOLIVAR',   // verificado: 1.873/1.873
   'CIUDAD BOLIVAR': 'BOLIVAR',
   UPATA: 'BOLIVAR',
   'EL CALLAO': 'BOLIVAR',

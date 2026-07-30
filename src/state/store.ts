@@ -5,14 +5,15 @@ import JSZip from 'jszip'
 import { adapters } from '@/adapters'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import {
-  getLearnedDiccionario, getLearnedEstados, getManualMaestro,
-  putLearnedDiccionario, putLearnedEstado, putManualMaestro,
+  getLearnedDiccionario, getLearnedEstados, getLearnedCiudades, getManualMaestro,
+  putLearnedDiccionario, putLearnedEstado, putLearnedCiudad, putManualMaestro,
   getMeta, putMeta, clearLearned,
   deleteLearnedDiccionario as dbDeleteLearnedDiccionario,
   deleteLearnedEstado as dbDeleteLearnedEstado,
+  deleteLearnedCiudad as dbDeleteLearnedCiudad,
   deleteManualMaestro as dbDeleteManualMaestro,
 } from '@/storage/db'
-import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 import { loadRunConfig } from '@/storage/run-config'
 import { csvDocument } from '@/reports/csv'
@@ -28,6 +29,7 @@ interface IngestState {
   phase: 'idle' | 'running' | 'done' | 'error'
   rows: number
   distributors: number
+  clientes: number
   fileName: string | null
   summary: IngestSummary | null
   error: string | null
@@ -65,9 +67,10 @@ interface StoreState {
   exportError: string | null
   // Counts of what the analyst has taught the motor so far, persisted in IndexedDB (Sprint 2 ·
   // C1) — populated on init and after any write, shown read-only in Config.
-  learned: { diccionario: number; estadoDiccionario: number; maestro: number }
+  learned: { diccionario: number; estadoDiccionario: number; ciudadEstado: number; maestro: number }
   learnedDiccionarioList: DiccionarioEntry[]
   learnedEstadoList: EstadoDiccionarioEntry[]
+  learnedCiudadList: CiudadEstadoEntry[]
   manualMaestroList: MaestroEntry[]
   // Editable fuzzy thresholds (Sprint 2 · C3): loaded from meta on init, applied to every
   // subsequent pipeline/export run via the worker message.
@@ -92,6 +95,7 @@ interface StoreState {
   resetLearned: () => Promise<void>
   deleteLearnedDiccionario: (variante: string) => Promise<void>
   deleteLearnedEstado: (variante: string) => Promise<void>
+  deleteLearnedCiudad: (ciudad: string) => Promise<void>
   deleteManualMaestro: (rif: string) => Promise<void>
 }
 
@@ -108,7 +112,7 @@ export const useStore = create<StoreState>((set, get) => ({
   cola: adapters.getCola(),
   maestro: adapters.getMaestro(),
   stages: adapters.getStages(),
-  ingest: { phase: 'idle', rows: 0, distributors: 0, fileName: null, summary: null, error: null },
+  ingest: { phase: 'idle', rows: 0, distributors: 0, clientes: 0, fileName: null, summary: null, error: null },
   runResult: null,
   lastFile: null,
   runId: null,
@@ -116,28 +120,29 @@ export const useStore = create<StoreState>((set, get) => ({
   exportState: 'idle',
   exportRows: 0,
   exportError: null,
-  learned: { diccionario: 0, estadoDiccionario: 0, maestro: 0 },
+  learned: { diccionario: 0, estadoDiccionario: 0, ciudadEstado: 0, maestro: 0 },
   learnedDiccionarioList: [],
   learnedEstadoList: [],
+  learnedCiudadList: [],
   manualMaestroList: [],
   thresholds: { fuzzyThreshold: 92, fuzzySuggestFloor: 80 },
   stageStatuses: {},
   startIngest: async (file) => {
-    set({ ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null } })
+    set({ ingest: { phase: 'running', rows: 0, distributors: 0, clientes: 0, fileName: file.name, summary: null, error: null } })
     const startedAt = Date.now()
     try {
       const rawSummary = await adapters.ingest(file, (e: ProgressEvent) => {
-        if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors } }))
+        if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors, clientes: e.clientes } }))
       })
       const summary = { ...rawSummary, startedAt, finishedAt: Date.now() }
-      set((s) => ({ ingest: { ...s.ingest, phase: 'done', rows: summary.totalRows, distributors: summary.distributors, summary } }))
+      set((s) => ({ ingest: { ...s.ingest, phase: 'done', rows: summary.totalRows, distributors: summary.distributors, clientes: summary.clientes, summary } }))
     } catch (err) {
       set((s) => ({ ingest: { ...s.ingest, phase: 'error', error: (err as Error).message } }))
     }
   },
   startPipeline: async (file) => {
     set({
-      ingest: { phase: 'running', rows: 0, distributors: 0, fileName: file.name, summary: null, error: null },
+      ingest: { phase: 'running', rows: 0, distributors: 0, clientes: 0, fileName: file.name, summary: null, error: null },
       lastFile: file,
       runId: null,
       exportState: 'idle',
@@ -151,7 +156,7 @@ export const useStore = create<StoreState>((set, get) => ({
       // benefits from everything the analyst has taught the motor so far (Sprint 2 · C1).
       const runConfig = await loadRunConfig()
       const result = await adapters.runPipeline(file, (e: ProgressEvent) => {
-        if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors } }))
+        if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors, clientes: e.clientes } }))
         if (e.type === 'stage') {
           set((s) => ({
             stageStatuses: {
@@ -163,7 +168,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }, runConfig, get().thresholds)
       const summary = { ...result.summary, startedAt, finishedAt: Date.now() }
       set(() => ({
-        ingest: { phase: 'done', rows: summary.totalRows, distributors: summary.distributors, fileName: file.name, summary, error: null },
+        ingest: { phase: 'done', rows: summary.totalRows, distributors: summary.distributors, clientes: summary.clientes, fileName: file.name, summary, error: null },
         distribuidores: result.distribuidores,
         cola: result.cola,
         maestro: result.maestro,
@@ -214,17 +219,19 @@ export const useStore = create<StoreState>((set, get) => ({
   // Reads persisted counts and full arrays from IndexedDB (best-effort — [] when unavailable) so Config can show
   // what's been learned so far and allow editing. Called on app init and safe to re-call after any storage write.
   refreshLearned: async () => {
-    const [diccionario, estadoDiccionario, maestro] = await Promise.all([
-      getLearnedDiccionario(), getLearnedEstados(), getManualMaestro(),
+    const [diccionario, estadoDiccionario, ciudadEstado, maestro] = await Promise.all([
+      getLearnedDiccionario(), getLearnedEstados(), getLearnedCiudades(), getManualMaestro(),
     ])
     set({
       learned: {
         diccionario: diccionario.length,
         estadoDiccionario: estadoDiccionario.length,
+        ciudadEstado: ciudadEstado.length,
         maestro: maestro.length,
       },
       learnedDiccionarioList: diccionario,
       learnedEstadoList: estadoDiccionario,
+      learnedCiudadList: ciudadEstado,
       manualMaestroList: maestro,
     })
   },
@@ -236,6 +243,10 @@ export const useStore = create<StoreState>((set, get) => ({
     await dbDeleteLearnedEstado(variante)
     await get().refreshLearned()
   },
+  deleteLearnedCiudad: async (ciudad) => {
+    await dbDeleteLearnedCiudad(ciudad)
+    await get().refreshLearned()
+  },
   deleteManualMaestro: async (rif) => {
     await dbDeleteManualMaestro(rif)
     await get().refreshLearned()
@@ -244,7 +255,8 @@ export const useStore = create<StoreState>((set, get) => ({
   // item's dominio + tipo:
   //   SEGMENTO + CONFLICTO_MAYOR → manual maestro override (valorCrudo is a RIF)
   //   SEGMENTO + otro            → learned segment diccionario (valorCrudo is a raw segment)
-  //   ESTADO                     → learned estado diccionario (valorCrudo is a raw state)
+  //   ESTADO + CIUDAD_SIN_MAPEAR → learned ciudad→estado map (valorCrudo is a city)
+  //   ESTADO + otro              → learned estado diccionario (valorCrudo is a raw state)
   // All three feed the NEXT corrida via loadRunConfig. Never throws to the UI — a storage hiccup
   // is swallowed (putters already no-op without IndexedDB).
   resolveColaItem: async (id, valor) => {
@@ -259,7 +271,9 @@ export const useStore = create<StoreState>((set, get) => ({
     if (item.dominio === 'ESTADO' && !estado) return
 
     try {
-      if (item.dominio === 'ESTADO') {
+      if (item.tipo === 'CIUDAD_SIN_MAPEAR') {
+        await putLearnedCiudad({ ciudad: item.valorCrudo, estadoStd: estado!, activa: true })
+      } else if (item.dominio === 'ESTADO') {
         await putLearnedEstado({ variante: item.valorCrudo, estadoStd: estado!, activa: true })
       } else if (item.tipo === 'CONFLICTO_MAYOR') {
         await putManualMaestro({

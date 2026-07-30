@@ -556,10 +556,16 @@ export default function Manual() {
               otras transacciones. Gana sobre la ciudad cuando ambos discrepan (regla R4).
             </CascadeNode>
             <CascadeArrow>si el RIF no tiene historial geográfico</CascadeArrow>
-            <CascadeNode accent="cyan" method="4 · POR CIUDAD" chips={<Chip tone="cyan">~150 ciudades</Chip>}>
+            <CascadeNode
+              accent="cyan"
+              method="4 · POR CIUDAD"
+              chips={<><Chip tone="cyan">~180 ciudades</Chip><Chip tone="green">aprendible</Chip></>}
+            >
               Se deduce el estado a partir de la ciudad del cliente. La matriz solo incluye nombres que identifican
-              un único estado: los ambiguos («San Carlos», «Libertador») se dejan fuera a propósito, porque
-              adivinar mal es peor que dejar el registro sin estado.
+              un único estado: los ambiguos («San Carlos», «Libertador», «La Candelaria») se dejan fuera a propósito,
+              porque adivinar mal es peor que dejar el registro sin estado. Cada distribuidor inventa sus propios
+              nombres de ruta —«El Paraíso / Las Fuentes», «Catia / Manicomio»—; esos llegan a la Cola como
+              «Ciudad sin mapear» y, una vez decididos, quedan en el mapa para siempre.
             </CascadeNode>
             <CascadeArrow>si la ciudad no resuelve</CascadeArrow>
             <CascadeNode accent="amber" method="5 · COINCIDENCIA DIFUSA" chips={<Chip tone="amber">umbral configurable</Chip>}>

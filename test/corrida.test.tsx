@@ -4,7 +4,7 @@ import { useStore } from '@/state/store'
 
 const BASE_RUN_RESULT = {
   summary: {
-    fileName: 'real.csv', fileKind: 'csv' as const, totalRows: 5000, distributors: 12, bytes: 10,
+    fileName: 'real.csv', fileKind: 'csv' as const, totalRows: 5000, distributors: 12, clientes: 340, bytes: 10,
     schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] },
     headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
   },
@@ -27,7 +27,7 @@ const BASE_RUN_RESULT = {
 
 test('shows live row/distributor counts from ingest state', () => {
   useStore.setState((s) => ({
-    ingest: { ...s.ingest, phase: 'running', rows: 5000, distributors: 12, fileName: 'x.csv', summary: null, error: null },
+    ingest: { ...s.ingest, phase: 'running', rows: 5000, distributors: 12, clientes: 340, fileName: 'x.csv', summary: null, error: null },
   }))
   render(<Corrida />)
   expect(screen.getByText(/5\.?000|5,000/)).toBeInTheDocument()
@@ -46,14 +46,14 @@ test('done state shows real classification once a pipeline run has completed', (
       ...s.ingest,
       phase: 'done',
       summary: {
-        fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, bytes: 10,
+        fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, clientes: 340, bytes: 10,
         schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] },
         headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
       },
     },
     runResult: {
       summary: {
-        fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, bytes: 10,
+        fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, clientes: 340, bytes: 10,
         schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] },
         headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
       },

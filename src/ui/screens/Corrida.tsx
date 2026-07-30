@@ -57,7 +57,7 @@ export default function Corrida() {
                 aria-hidden="true"
               />
               <div className="font-mono text-xs text-ink">
-                {ingest.fileName} · {fmt.format(ingest.rows)} filas · {fmt.format(ingest.distributors)} distribuidores
+                {ingest.fileName} · {fmt.format(ingest.rows)} filas · {fmt.format(ingest.distributors)} distribuidores · {fmt.format(ingest.clientes)} clientes
               </div>
             </div>
             <StageBar />
@@ -75,7 +75,7 @@ export default function Corrida() {
                   </>
                 ) : (
                   <>
-                    {fmt.format(ingest.summary.totalRows)} filas · {fmt.format(ingest.summary.distributors)} distribuidores ·{' '}
+                    {fmt.format(ingest.summary.totalRows)} filas · {fmt.format(ingest.summary.distributors)} distribuidores · {fmt.format(ingest.summary.clientes)} clientes ·{' '}
                     {fmt.format(ingest.summary.durationMs)} ms
                   </>
                 )}

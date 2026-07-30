@@ -76,6 +76,7 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
   const counts: { label: string; value: number }[] = [
     { label: 'Entradas de diccionario aprendidas', value: learned.diccionario },
     { label: 'Variantes de estado aprendidas', value: learned.estadoDiccionario },
+    { label: 'Ciudades aprendidas', value: learned.ciudadEstado },
     { label: 'Clasificaciones manuales de maestro', value: learned.maestro },
   ]
 
@@ -87,7 +88,7 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
           Entradas enseñadas por el analista, guardadas en este dispositivo (IndexedDB) y aplicadas en la próxima corrida — todo local, sin sincronización con ningún servidor ni otros equipos.
         </p>
 
-        <dl className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs mb-4">
+        <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs mb-4">
           {counts.map((c) => (
             <div key={c.label} className="flex items-center justify-between border-b border-line pb-2">
               <dt className="text-slate">{c.label}</dt>

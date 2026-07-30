@@ -7,8 +7,8 @@ class FakeWorker {
   postMessage() {
     queueMicrotask(() => {
       this.onmessage?.({ data: { type: 'start', fileName: 'x.csv', fileKind: 'csv', bytes: 10 } } as MessageEvent)
-      this.onmessage?.({ data: { type: 'progress', rows: 5000, distributors: 12, bytesRead: 10 } } as MessageEvent)
-      const summary: IngestSummary = { fileName: 'x.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, bytes: 10, schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] }, headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3 }
+      this.onmessage?.({ data: { type: 'progress', rows: 5000, distributors: 12, clientes: 60, bytesRead: 10 } } as MessageEvent)
+      const summary: IngestSummary = { fileName: 'x.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, clientes: 60, bytes: 10, schema: { rif: 'RIF', segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] }, headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3 }
       this.onmessage?.({ data: { type: 'done', summary } } as MessageEvent)
     })
   }

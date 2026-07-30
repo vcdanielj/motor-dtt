@@ -4,7 +4,7 @@ import type { PipelineRunResult, ProgressEvent } from '@/contracts/pipeline'
 
 const RESULT: PipelineRunResult = {
   summary: {
-    fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, bytes: 10,
+    fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, clientes: 60, bytes: 10,
     schema: { rif: 'RIF', segmentoCrudo: 'CANAL', estadoCrudo: 'EDO', ciudad: null, passthrough: [], unmapped: [] },
     headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
   },
@@ -62,7 +62,7 @@ test('exportBase reuses the run file, calls runExport (version+runId only, no ma
   const originalSaveBlob = adapters.saveBlob
   adapters.runExport = async (f, version, id, onProgress: (e: ProgressEvent) => void) => {
     runExportArgs = [f, version, id]
-    onProgress({ type: 'progress', rows: 5000, distributors: 0, bytesRead: 0 })
+    onProgress({ type: 'progress', rows: 5000, distributors: 0, clientes: 0, bytesRead: 0 })
     return { blob: fakeBlob, rows: 5000 }
   }
   adapters.saveBlob = async (blob, name) => {

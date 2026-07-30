@@ -4,7 +4,7 @@
 // fallback values and putters no-op, so the app keeps working purely on the embedded SEEDS.
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
-import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 
 interface MetaRecord { key: string; value: unknown }
@@ -12,14 +12,16 @@ interface MetaRecord { key: string; value: unknown }
 interface MotorDTTSchema extends DBSchema {
   diccionario: { key: string; value: DiccionarioEntry }
   estadoDiccionario: { key: string; value: EstadoDiccionarioEntry }
+  ciudadEstado: { key: string; value: CiudadEstadoEntry }
   maestro: { key: string; value: MaestroEntry }
   meta: { key: string; value: MetaRecord }
 }
 
 const DB_NAME = 'motor-dtt'
-// v2 adds the `estadoDiccionario` store. The upgrade callback below creates every store it does
-// not find, so an existing v1 database gains the new store and keeps its data.
-const DB_VERSION = 2
+// v2 added `estadoDiccionario`, v3 adds `ciudadEstado`. The upgrade callback below creates every
+// store it does not find, so a database at ANY earlier version gains the new stores and keeps all
+// of its data — see test/db-migration.test.ts.
+const DB_VERSION = 3
 
 let dbPromise: Promise<IDBPDatabase<MotorDTTSchema> | null> | null = null
 
@@ -39,6 +41,7 @@ function openMotorDB(): Promise<IDBPDatabase<MotorDTTSchema> | null> {
         upgrade(db) {
           if (!db.objectStoreNames.contains('diccionario')) db.createObjectStore('diccionario', { keyPath: 'variante' })
           if (!db.objectStoreNames.contains('estadoDiccionario')) db.createObjectStore('estadoDiccionario', { keyPath: 'variante' })
+          if (!db.objectStoreNames.contains('ciudadEstado')) db.createObjectStore('ciudadEstado', { keyPath: 'ciudad' })
           if (!db.objectStoreNames.contains('maestro')) db.createObjectStore('maestro', { keyPath: 'rif' })
           if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' })
         },
@@ -87,6 +90,27 @@ export async function deleteLearnedEstado(variante: string): Promise<void> {
   await db.delete('estadoDiccionario', normalizeText(variante))
 }
 
+/** All learned city→estado mappings (beyond the embedded seed). [] if IndexedDB is unavailable. */
+export async function getLearnedCiudades(): Promise<CiudadEstadoEntry[]> {
+  const db = await openMotorDB()
+  if (!db) return []
+  return db.getAll('ciudadEstado')
+}
+
+/** Persists a learned city→estado mapping, keyed by normalizeText(ciudad). */
+export async function putLearnedCiudad(entry: CiudadEstadoEntry): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  await db.put('ciudadEstado', { ...entry, ciudad: normalizeText(entry.ciudad) })
+}
+
+/** Deletes a specific learned city mapping (normalizing the key first). */
+export async function deleteLearnedCiudad(ciudad: string): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  await db.delete('ciudadEstado', normalizeText(ciudad))
+}
+
 /** All manually-classified maestro entries (metodo: 'MANUAL'). [] if IndexedDB is unavailable. */
 export async function getManualMaestro(): Promise<MaestroEntry[]> {
   const db = await openMotorDB()
@@ -123,6 +147,7 @@ export async function clearLearned(): Promise<void> {
   if (!db) return
   await db.clear('diccionario')
   await db.clear('estadoDiccionario')
+  await db.clear('ciudadEstado')
   await db.clear('maestro')
 }
 

@@ -14,6 +14,7 @@ const TIPO_LABEL: Record<ColaTipo, string> = {
   ALTO_VOLUMEN_SIN_CLASIFICAR: 'Alto volumen sin clasificar',
   ESTADO_VARIANTE_NUEVA: 'Estado · variante nueva',
   ESTADO_SIN_RESOLVER: 'Estado sin resolver',
+  CIUDAD_SIN_MAPEAR: 'Ciudad sin mapear',
 }
 
 const TIPO_VARIANT: Record<ColaTipo, BadgeVariant> = {
@@ -22,6 +23,7 @@ const TIPO_VARIANT: Record<ColaTipo, BadgeVariant> = {
   ALTO_VOLUMEN_SIN_CLASIFICAR: 'gold',
   ESTADO_VARIANTE_NUEVA: 'amber',
   ESTADO_SIN_RESOLVER: 'gold',
+  CIUDAD_SIN_MAPEAR: 'navy',
 }
 
 // CONFLICTO_MAYOR carries a RIF in valorCrudo (resolved into the maestro); the segmento tipos
@@ -33,6 +35,7 @@ const TIPO_PROMPT: Record<ColaTipo, string> = {
   ALTO_VOLUMEN_SIN_CLASIFICAR: 'Mapear esta variante a un segmento',
   ESTADO_VARIANTE_NUEVA: 'Mapear esta variante a un estado',
   ESTADO_SIN_RESOLVER: 'Mapear esta variante a un estado',
+  CIUDAD_SIN_MAPEAR: '¿En qué estado queda esta ciudad?',
 }
 
 const DOMINIO_LABEL: Record<ColaDominio, string> = {

@@ -3,7 +3,7 @@ import type { PipelineRunResult } from '@/contracts/pipeline'
 
 const RESULT: PipelineRunResult = {
   summary: {
-    fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, bytes: 10,
+    fileName: 'real.csv', fileKind: 'csv', totalRows: 5000, distributors: 12, clientes: 60, bytes: 10,
     schema: { rif: 'RIF', segmentoCrudo: 'CANAL', estadoCrudo: 'EDO', ciudad: null, passthrough: [], unmapped: [] },
     headerRowCount: 1, startedAt: 0, finishedAt: 0, durationMs: 3,
   },
@@ -53,7 +53,7 @@ class FakeResultWorker {
   postMessage() {
     queueMicrotask(() => {
       this.onmessage?.({ data: { type: 'start', fileName: 'real.csv', fileKind: 'csv', bytes: 10 } } as MessageEvent)
-      this.onmessage?.({ data: { type: 'progress', rows: 5000, distributors: 12, bytesRead: 10 } } as MessageEvent)
+      this.onmessage?.({ data: { type: 'progress', rows: 5000, distributors: 12, clientes: 60, bytesRead: 10 } } as MessageEvent)
       this.onmessage?.({ data: { type: 'result', result: RESULT } } as MessageEvent)
     })
   }

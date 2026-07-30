@@ -79,3 +79,26 @@ describe('seeds', () => {
     expect(SEEDS.provenance.placeholder).toBe(false)
   })
 })
+
+describe('ciudad_estado — reglas de inclusión', () => {
+  it('no contiene topónimos que se repiten en varios estados', () => {
+    // Cada uno de estos nombra lugares en más de un estado; mapearlos sería adivinar.
+    const ambiguos = ['SAN CARLOS', 'LIBERTADOR', 'BOLIVAR', 'LA VICTORIA', 'INDEPENDENCIA',
+      'LAGUNILLAS', 'SANTA RITA', 'LA CONCEPCION', 'SABANETA', 'LA CANDELARIA', 'SAN MATEO',
+      'MONTALBAN', 'ALTAGRACIA', 'COCHE', 'EL VALLE']
+    const claves = new Set(Object.keys(SEEDS.ciudadEstado).map(normalizeText))
+    for (const a of ambiguos) expect(claves.has(a), a).toBe(false)
+  })
+
+  it('los municipios del área metropolitana caraqueña quedan en su estado real', () => {
+    // Baruta, Chacao, El Hatillo y Sucre (Petare) son MIRANDA, no Distrito Capital, por más que
+    // comercialmente se hable de «Gran Caracas». Verificado contra el archivo real de Heinz.
+    for (const c of ['BARUTA', 'CHACAO', 'EL HATILLO', 'PETARE']) {
+      expect(SEEDS.ciudadEstado[c], c).toBe('MIRANDA')
+    }
+    // Las parroquias del municipio Libertador sí son Distrito Capital.
+    for (const c of ['CATIA', 'EL JUNQUITO', 'ANTIMANO', 'CARICUAO']) {
+      expect(SEEDS.ciudadEstado[c], c).toBe('DISTRITO CAPITAL')
+    }
+  })
+})

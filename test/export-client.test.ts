@@ -6,7 +6,7 @@ class FakeExportWorker {
   postMessage() {
     queueMicrotask(() => {
       this.onmessage?.({ data: { type: 'start', fileName: 'x.csv', fileKind: 'csv', bytes: 10 } } as MessageEvent)
-      this.onmessage?.({ data: { type: 'progress', rows: 100, distributors: 0, bytesRead: 10 } } as MessageEvent)
+      this.onmessage?.({ data: { type: 'progress', rows: 100, distributors: 0, clientes: 0, bytesRead: 10 } } as MessageEvent)
       this.onmessage?.({
         data: { type: 'export', blob: new Blob(['RIF,CANAL\n1,ABASTOS\n'], { type: 'text/csv;charset=utf-8;' }), rows: 100 },
       } as MessageEvent)

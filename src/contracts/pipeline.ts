@@ -7,7 +7,10 @@ export interface IngestSummary {
   fileName: string
   fileKind: FileKind
   totalRows: number
-  distributors: number       // distinct RIF-owner/distributor count seen during stream
+  distributors: number       // distinct values of the DISTRIBUIDOR column
+  clientes: number           // distinct RIFs — this used to be reported AS `distributors`, which
+                             // made a 63-distributor file read as "44.825 distribuidores"
+
   bytes: number
   schema: import('./row').SchemaMap
   headerRowCount: number
@@ -73,7 +76,7 @@ export type StageStatus = 'running' | 'done'
 
 export type ProgressEvent =
   | { type: 'start'; fileName: string; fileKind: FileKind; bytes: number }
-  | { type: 'progress'; rows: number; distributors: number; bytesRead: number }
+  | { type: 'progress'; rows: number; distributors: number; clientes: number; bytesRead: number }
   | { type: 'done'; summary: IngestSummary }
   | { type: 'result'; result: PipelineRunResult }
   // Per-stage progress: stageIndex is 0-based (0=Ingesta … 5=Dedup), detail is an optional

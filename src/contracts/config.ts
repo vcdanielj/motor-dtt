@@ -7,6 +7,11 @@ export interface DiccionarioEntry { variante: string; segmentoN3: string; macroN
  *  (the catalog stays authoritative — e.g. 'LA GUAIRA' is a variante of 'VARGAS', not a new estado). */
 export interface EstadoDiccionarioEntry { variante: string; estadoStd: string; activa: boolean }
 
+/** One city→estado mapping the analyst taught the motor. The learned counterpart of the
+ *  CIUDAD_ESTADO seed: distributors label routes with parish or neighbourhood names the seed
+ *  cannot anticipate ('EL PARAISO / LAS FUENTES'), so the queue lets a human map them once. */
+export interface CiudadEstadoEntry { ciudad: string; estadoStd: string; activa: boolean }
+
 export interface SeedCatalogs {
   segmentos: SegmentoSeed[]
   estados: string[]

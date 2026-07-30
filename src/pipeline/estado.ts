@@ -46,6 +46,17 @@ export function isProhibitedEstado(normalized: string): boolean {
   return PROHIBITED_ESTADOS.has(normalized)
 }
 
+// City cells that carry no location: the same R4 placeholders, plus two artifacts seen in real
+// exports — 'NAN' (a pandas null that survived a CSV round trip) and 'LOCAL' (a form default).
+// Both were verified against a 740K-row file: their rows spread across several estados, so they
+// identify nothing and must never feed the CIUDAD step or the review queue.
+const PROHIBITED_CIUDADES = new Set([...PROHIBITED_ESTADOS, 'NAN', 'LOCAL', 'S / N', 'SN', 'CIUDAD'])
+
+/** True when a city cell carries no usable location. Input must be normalizeText'd. */
+export function isProhibitedCiudad(normalized: string): boolean {
+  return PROHIBITED_CIUDADES.has(normalized)
+}
+
 // Leading administrative prefixes: 'ESTADO DEL ZULIA', 'EDO. MIRANDA', 'EDO.MIRANDA' (no space),
 // 'EDO / MIRANDA' (a hyphen normalizes to ' / '), 'DTTO CAPITAL'. The separator is optional so the
 // no-space form is covered; the lookahead keeps a bare 'ESTADO' from collapsing to the empty
@@ -166,9 +177,9 @@ export function resolveEstado(
     if (rifEstado) return resuelto(rifEstado, 'RIF')
   }
 
-  // 4. CIUDAD — ciudad_estado seed lookup.
+  // 4. CIUDAD — ciudad_estado lookup (seed ++ learned).
   const c = normalizeText(input.ciudad ?? '')
-  if (c !== '') {
+  if (c !== '' && !isProhibitedCiudad(c)) {
     const ciudadEstado = ctx.ciudadEstado.get(c)
     if (ciudadEstado) return resuelto(ciudadEstado, 'CIUDAD')
   }
