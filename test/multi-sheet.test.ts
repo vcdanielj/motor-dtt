@@ -1,7 +1,6 @@
 import { describe, test, expect } from 'vitest'
 import * as XLSX from 'xlsx'
-import { findBestHeaderRow } from '@/ingest/schema-detect'
-import { isSummaryFooterRow } from '@/ingest/normalize'
+import { streamXlsxWorkbook } from '@/ingest/xlsx-stream'
 
 describe('XLSX Multi-Sheet Ingestion Logic', () => {
   function makeWorkbookBuffer(sheets: Record<string, unknown[][]>): ArrayBuffer {
@@ -13,47 +12,7 @@ describe('XLSX Multi-Sheet Ingestion Logic', () => {
     return XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
   }
 
-  // Helper simulating streamXlsx from worker
-  function streamXlsxTest(
-    buf: ArrayBuffer,
-    onRow: (rec: Record<string, string>, sheetName: string) => void,
-  ): { validSheets: number; totalRows: number; sheetsFound: string[] } {
-    const wb = XLSX.read(buf, { type: 'array' })
-    let validSheets = 0
-    let totalRows = 0
-    const sheetsFound: string[] = []
-
-    for (const name of wb.SheetNames) {
-      const ws = wb.Sheets[name]
-      if (!ws) continue
-      const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
-      if (!matrix.length) continue
-
-      const bestHeader = findBestHeaderRow(matrix, 50)
-      if (!bestHeader) continue
-
-      const { headerRowIdx, headers, schema } = bestHeader
-      validSheets++
-      sheetsFound.push(name)
-
-      for (let r = headerRowIdx + 1; r < matrix.length; r++) {
-        const row = matrix[r]
-        if (!row || !row.some((c) => String(c ?? '').trim() !== '')) continue
-        const rec: Record<string, string> = {}
-        for (let c = 0; c < headers.length; c++) {
-          const key = headers[c]
-          if (key) rec[key] = String(row[c] ?? '').trim()
-        }
-        if (isSummaryFooterRow(rec, schema.rif)) continue
-        onRow(rec, name)
-        totalRows++
-      }
-    }
-
-    return { validSheets, totalRows, sheetsFound }
-  }
-
-  test('skips leading Pivot Table sheet and ingests data from second sheet ("BASE DE DATOS")', () => {
+  test('skips leading Pivot Table sheet and ingests data from second sheet ("BASE DE DATOS")', async () => {
     const pivotSheet = [
       ['', ''],
       ['Distinct Count of RIF', 'Column Labels', 'Total'],
@@ -73,17 +32,26 @@ describe('XLSX Multi-Sheet Ingestion Logic', () => {
     })
 
     const rowsIngested: Record<string, string>[] = []
-    const res = streamXlsxTest(buf, (rec) => rowsIngested.push(rec))
+    const sheetsFound: string[] = []
+    const res = await streamXlsxWorkbook(
+      buf,
+      (_, sheetName) => {
+        sheetsFound.push(sheetName)
+      },
+      (rec) => {
+        rowsIngested.push(rec)
+      },
+    )
 
     expect(res.validSheets).toBe(1)
-    expect(res.sheetsFound).toEqual(['BASE DE DATOS'])
+    expect(sheetsFound).toEqual(['BASE DE DATOS'])
     expect(res.totalRows).toBe(2)
     expect(rowsIngested[0].RIF).toBe('J123456789')
     expect(rowsIngested[0].DISTRIBUIDOR).toBe('SUMINISTROS FVR')
     expect(rowsIngested[1].RIF).toBe('J987654321')
   })
 
-  test('ingests and combines multiple valid data sheets across months', () => {
+  test('ingests and combines multiple valid data sheets across months', async () => {
     const headers = ['MES', 'DISTRIBUIDOR', 'CLIENTE', 'RIF', 'Canal', 'Estado', 'TON']
     const sheetOct = [
       headers,
@@ -106,15 +74,24 @@ describe('XLSX Multi-Sheet Ingestion Logic', () => {
     })
 
     const rowsIngested: Record<string, string>[] = []
-    const res = streamXlsxTest(buf, (rec) => rowsIngested.push(rec))
+    const sheetsFound: string[] = []
+    const res = await streamXlsxWorkbook(
+      buf,
+      (_, sheetName) => {
+        sheetsFound.push(sheetName)
+      },
+      (rec) => {
+        rowsIngested.push(rec)
+      },
+    )
 
     expect(res.validSheets).toBe(2)
-    expect(res.sheetsFound).toEqual(['Octubre', 'Noviembre'])
+    expect(sheetsFound).toEqual(['Octubre', 'Noviembre'])
     expect(res.totalRows).toBe(3)
     expect(rowsIngested.map((r) => r.RIF)).toEqual(['J111', 'J222', 'J333'])
   })
 
-  test('handles letterhead, blank lines and footer totals smoothly', () => {
+  test('handles letterhead, blank lines and footer totals smoothly', async () => {
     const styledSheet = [
       ['DISTRIBUIDORA NACIONAL C.A.'],
       ['RIF J-12345678-0 - REPORTE DE VENTAS'],
@@ -131,7 +108,11 @@ describe('XLSX Multi-Sheet Ingestion Logic', () => {
     })
 
     const rowsIngested: Record<string, string>[] = []
-    const res = streamXlsxTest(buf, (rec) => rowsIngested.push(rec))
+    const res = await streamXlsxWorkbook(
+      buf,
+      () => {},
+      (rec) => rowsIngested.push(rec),
+    )
 
     expect(res.validSheets).toBe(1)
     expect(res.totalRows).toBe(2)

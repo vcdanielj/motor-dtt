@@ -1,6 +1,5 @@
 /// <reference lib="webworker" />
 import Papa from 'papaparse'
-import * as XLSX from 'xlsx'
 import {
   schemaIsUsable,
   detectDistCol,
@@ -9,6 +8,7 @@ import {
   detectTonCol,
   findBestHeaderRow,
 } from '@/ingest/schema-detect'
+import { streamXlsxWorkbook } from '@/ingest/xlsx-stream'
 import { normalizeText, normalizeRif, parseNumeric, isSummaryFooterRow } from '@/ingest/normalize'
 import { SEEDS } from '@/seeds'
 import { buildIndex, type SegmentoContext } from '@/pipeline/segmento'
@@ -144,48 +144,6 @@ function seedManualMaestro(builder: MaestroBuilder, manualMaestro: MaestroEntry[
       estadoStd: m.estadoHabitual,
     })
   }
-}
-
-// Streams all sheets of an XLSX workbook, scanning each sheet's top rows (up to 50) for a valid header row.
-// Automatically skips letterheads (membretes), pivot tables, cover sheets, notes and empty sheets.
-function streamXlsx(
-  buf: ArrayBuffer,
-  onSheetHeaders: (headers: string[], sheetName: string, schema: SchemaMap) => boolean | void,
-  onRow: (rec: Record<string, string>, sheetName: string) => void,
-): { validSheets: number; totalRows: number } {
-  const wb = XLSX.read(buf, { type: 'array' })
-  let validSheets = 0
-  let totalRows = 0
-
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name]
-    if (!ws) continue
-    const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
-    if (!matrix.length) continue
-
-    const bestHeader = findBestHeaderRow(matrix, 50)
-    if (!bestHeader) continue
-
-    const { headerRowIdx, headers, schema } = bestHeader
-    const accept = onSheetHeaders(headers, name, schema)
-    if (accept === false) continue
-
-    validSheets++
-    for (let r = headerRowIdx + 1; r < matrix.length; r++) {
-      const row = matrix[r]
-      if (!row || !row.some((c) => String(c ?? '').trim() !== '')) continue
-      const rec: Record<string, string> = {}
-      for (let c = 0; c < headers.length; c++) {
-        const key = headers[c]
-        if (key) rec[key] = String(row[c] ?? '').trim()
-      }
-      if (isSummaryFooterRow(rec, schema.rif)) continue
-      onRow(rec, name)
-      totalRows++
-    }
-  }
-
-  return { validSheets, totalRows }
 }
 
 // Streams CSV records handling leading letterheads (membretes) and blank lines before headers.
@@ -335,7 +293,7 @@ async function runCounting(file: File) {
       if (!res.ok) badSchema = true
     } else {
       const buf = await file.arrayBuffer()
-      const res = streamXlsx(
+      const res = await streamXlsxWorkbook(
         buf,
         (hs, _, s) => {
           if (!schema) onHeaders(hs, s)
@@ -582,7 +540,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
       if (!res.ok) badSchema = true
     } else {
       const buf = await file.arrayBuffer()
-      const res = streamXlsx(
+      const res = await streamXlsxWorkbook(
         buf,
         (hs, _, s) => {
           if (!schema) {
@@ -835,7 +793,7 @@ async function streamRecords(
     if (!res.ok) badSchema = true
   } else {
     const buf = await file.arrayBuffer()
-    const res = streamXlsx(
+    const res = await streamXlsxWorkbook(
       buf,
       (hs, _, s) => {
         if (!started) {
