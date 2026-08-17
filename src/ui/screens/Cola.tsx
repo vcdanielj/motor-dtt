@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '@/state/store'
-import type { ColaDominio, ColaTipo } from '@/contracts/cola'
-import type { SegmentoSeed } from '@/contracts/config'
-import Badge, { type BadgeVariant } from '@/ui/components/Badge'
 import Card from '@/ui/components/Card'
+import Badge from '@/ui/components/Badge'
+import type { SegmentoSeed } from '@/contracts/config'
+import type { ColaDominio, ColaTipo } from '@/contracts/cola'
 
 const fmt = new Intl.NumberFormat('es-VE')
 const fmt1 = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -11,19 +11,19 @@ const fmt1 = new Intl.NumberFormat('es-VE', { minimumFractionDigits: 1, maximumF
 const TIPO_LABEL: Record<ColaTipo, string> = {
   VARIANTE_NUEVA: 'Variante nueva',
   CONFLICTO_MAYOR: 'Conflicto mayor',
-  ALTO_VOLUMEN_SIN_CLASIFICAR: 'Alto volumen sin clasificar',
-  ESTADO_VARIANTE_NUEVA: 'Estado · variante nueva',
-  ESTADO_SIN_RESOLVER: 'Estado sin resolver',
+  ALTO_VOLUMEN_SIN_CLASIFICAR: 'Alto volumen',
+  ESTADO_VARIANTE_NUEVA: 'Estado · Variante nueva',
+  ESTADO_SIN_RESOLVER: 'Estado · Sin resolver',
   CIUDAD_SIN_MAPEAR: 'Ciudad sin mapear',
 }
 
-const TIPO_VARIANT: Record<ColaTipo, BadgeVariant> = {
+const TIPO_VARIANT: Record<ColaTipo, 'green' | 'red' | 'amber'> = {
   VARIANTE_NUEVA: 'amber',
   CONFLICTO_MAYOR: 'red',
-  ALTO_VOLUMEN_SIN_CLASIFICAR: 'gold',
+  ALTO_VOLUMEN_SIN_CLASIFICAR: 'amber',
   ESTADO_VARIANTE_NUEVA: 'amber',
-  ESTADO_SIN_RESOLVER: 'gold',
-  CIUDAD_SIN_MAPEAR: 'navy',
+  ESTADO_SIN_RESOLVER: 'amber',
+  CIUDAD_SIN_MAPEAR: 'green',
 }
 
 // CONFLICTO_MAYOR carries a RIF in valorCrudo (resolved into the maestro); the segmento tipos
@@ -64,6 +64,7 @@ export default function Cola() {
   const segmentos = useStore((s) => s.seeds.segmentos)
   const estados = useStore((s) => s.seeds.estados)
   const resolveColaItem = useStore((s) => s.resolveColaItem)
+  const setView = useStore((s) => s.setView)
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [toast, setToast] = useState<string | null>(null)
@@ -118,9 +119,18 @@ export default function Cola() {
         ))}
       </div>
 
-      <div className="mt-3 rounded-md border border-green/60 bg-green/10 px-4 py-2 text-xs text-ink">
-        Las clasificaciones se guardan localmente y se aplican en la próxima corrida. Se guardan en este navegador
-        (IndexedDB) — no se sincronizan a ningún servidor ni a otros equipos.
+      <div className="mt-3 rounded-md border border-green/60 bg-green/10 px-4 py-2 text-xs text-ink flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Las clasificaciones se guardan localmente y se aplican en la próxima corrida. Se guardan en este navegador
+          (IndexedDB) — no se sincronizan a ningún servidor ni a otros equipos.
+        </span>
+        <button
+          type="button"
+          onClick={() => setView('config')}
+          className="text-xs font-bold text-navy hover:underline ml-auto"
+        >
+          Ver reglas en Configuración →
+        </button>
       </div>
 
       {toast ? (

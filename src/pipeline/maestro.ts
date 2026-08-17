@@ -2,7 +2,6 @@ import { normalizeRif } from '@/ingest/normalize'
 import type { MetodoSegmento } from '@/contracts/row'
 import type { MaestroEntry } from '@/contracts/maestro'
 
-/** One row's observed segment/macro for a RIF, feeding the maestro builder. */
 export interface Observation {
   rif: string
   segmentoN3: string
@@ -196,47 +195,89 @@ function pickWinner(segEntries: SegEntry[]): [string, ReglaCanonica] {
 }
 
 const MESES: Record<string, number> = {
-  ENE: 1, JAN: 1,
-  FEB: 2,
-  MAR: 3,
-  ABR: 4, APR: 4,
-  MAY: 5,
-  JUN: 6,
-  JUL: 7,
-  AGO: 8, AUG: 8,
-  SEP: 9,
-  OCT: 10,
-  NOV: 11,
-  DIC: 12, DEC: 12,
+  ENE: 1, ENERO: 1, JAN: 1, JANUARY: 1,
+  FEB: 2, FEBRERO: 2, FEBRUARY: 2,
+  MAR: 3, MARZO: 3, MARCH: 3,
+  ABR: 4, ABRIL: 4, APR: 4, APRIL: 4,
+  MAY: 5, MAYO: 5,
+  JUN: 6, JUNIO: 6, JUNE: 6,
+  JUL: 7, JULIO: 7, JULY: 7,
+  AGO: 8, AGOSTO: 8, AUG: 8, AUGUST: 8,
+  SEP: 9, SEPTIEMBRE: 9, SETIEMBRE: 9, SEPT: 9, SEPTEMBER: 9,
+  OCT: 10, OCTUBRE: 10, OCTOBER: 10,
+  NOV: 11, NOVIEMBRE: 11, NOVEMBER: 11,
+  DIC: 12, DICIEMBRE: 12, DEC: 12, DECEMBER: 12,
 }
 
-/** Parse a MES/FECHA string to a sortable YYYYMM integer. Handles 'Oct/25'/'OCT-25' (Spanish/English
- *  3-letter month + 2-digit year), 'MM/YYYY', 'YYYY-MM'. Returns null if unparseable. Pure. */
-export function parseFechaOrden(s: string | null | undefined): number | null {
+/** Parse a MES/FECHA string to a sortable YYYYMM integer. Handles 'Oct/25'/'OCT-25', 'Octubre 2025',
+ *  'MM/YYYY', 'YYYY-MM', 'YYYY-MM-DD', 'DD/MM/YYYY', ISO timestamps and Excel serial numbers.
+ *  Returns null if unparseable. Pure. */
+export function parseFechaOrden(s: unknown): number | null {
   if (s == null) return null
-  const trimmed = s.trim()
-  if (trimmed === '') return null
+  if (typeof s === 'number') {
+    // Excel serial date number e.g. 45000 -> 2023, 46000 -> 2026
+    if (s > 20000 && s < 80000) {
+      const d = new Date((s - 25569) * 86400 * 1000)
+      if (!isNaN(d.getTime())) {
+        return d.getUTCFullYear() * 100 + (d.getUTCMonth() + 1)
+      }
+    }
+  }
 
-  let m = /^(\d{4})-(\d{1,2})$/.exec(trimmed)
+  const str = String(s).trim()
+  if (str === '') return null
+
+  // ISO or full YYYY-MM-DD e.g. '2025-10-15' or '2025-10-15T00:00:00.000Z'
+  let m = /^(\d{4})[-/.](\d{1,2})(?:[-/.](\d{1,2}))?/.exec(str)
   if (m) {
     const year = Number(m[1])
     const month = Number(m[2])
-    return month >= 1 && month <= 12 ? year * 100 + month : null
+    if (year >= 1990 && year <= 2100 && month >= 1 && month <= 12) {
+      return year * 100 + month
+    }
   }
 
-  m = /^(\d{1,2})\/(\d{4})$/.exec(trimmed)
+  // DD/MM/YYYY or DD-MM-YYYY e.g. '15/10/2025'
+  m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/.exec(str)
+  if (m) {
+    const month = Number(m[2])
+    const year = Number(m[3])
+    if (year >= 1990 && year <= 2100 && month >= 1 && month <= 12) {
+      return year * 100 + month
+    }
+  }
+
+  // MM/YYYY or MM-YYYY e.g. '10/2025'
+  m = /^(\d{1,2})[-/](\d{4})$/.exec(str)
   if (m) {
     const month = Number(m[1])
     const year = Number(m[2])
-    return month >= 1 && month <= 12 ? year * 100 + month : null
+    if (year >= 1990 && year <= 2100 && month >= 1 && month <= 12) {
+      return year * 100 + month
+    }
   }
 
-  m = /^([A-Za-z]{3})[/-](\d{2})$/.exec(trimmed)
+  // Month name with 2-digit or 4-digit year: 'Oct/25', 'OCT-2025', 'Octubre 2025', 'OCT. 25'
+  m = /^([A-Za-z]+)[.\s/-]+(\d{2,4})$/.exec(str)
   if (m) {
-    const month = MESES[m[1].toUpperCase()]
-    if (!month) return null
-    const yy = Number(m[2])
-    return (2000 + yy) * 100 + month
+    const monthKey = m[1].normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+    const month = MESES[monthKey]
+    if (month) {
+      let yy = Number(m[2])
+      if (yy < 100) yy = (yy >= 50 ? 1900 : 2000) + yy
+      return yy * 100 + month
+    }
+  }
+
+  // Month name with leading year: '2025-Oct', '2025 Octubre'
+  m = /^(\d{4})[.\s/-]+([A-Za-z]+)$/.exec(str)
+  if (m) {
+    const year = Number(m[1])
+    const monthKey = m[2].normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+    const month = MESES[monthKey]
+    if (month && year >= 1990 && year <= 2100) {
+      return year * 100 + month
+    }
   }
 
   return null

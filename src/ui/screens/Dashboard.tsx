@@ -13,6 +13,13 @@ export default function Dashboard() {
   const distribuidores = useStore((s) => s.distribuidores)
   const runResult = useStore((s) => s.runResult)
   const setView = useStore((s) => s.setView)
+  const learned = useStore((s) => s.learned)
+
+  const totalAprendido =
+    (learned.diccionario || 0) +
+    (learned.estadoDiccionario || 0) +
+    (learned.ciudadEstado || 0) +
+    (learned.maestro || 0)
 
   const handlePrint = () => {
     window.print()
@@ -70,16 +77,26 @@ export default function Dashboard() {
           <h1 className="text-lg font-bold text-navy">Dashboard · Última corrida</h1>
           <p className="mt-1 text-xs text-slate">Resumen de la corrida más reciente sobre el histórico cargado.</p>
         </div>
-        <button
-          type="button"
-          onClick={handlePrint}
-          className="no-print rounded-md bg-navy px-4 py-2 text-xs font-semibold text-panel transition-opacity hover:opacity-90 flex items-center gap-1.5"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-          </svg>
-          Generar reporte PDF
-        </button>
+        <div className="flex items-center gap-3">
+          {totalAprendido > 0 && (
+            <div className="rounded-md border border-green/40 bg-green/10 px-3 py-1.5 text-xs text-green font-medium flex items-center gap-1.5">
+              <span aria-hidden="true">⚡</span>
+              <span>
+                <strong>{totalAprendido}</strong> reglas aprendidas activas
+              </span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="no-print rounded-md bg-navy px-4 py-2 text-xs font-semibold text-panel transition-opacity hover:opacity-90 flex items-center gap-1.5"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            Generar reporte PDF
+          </button>
+        </div>
       </div>
 
       {/* Metadata Card (run info) */}
@@ -118,13 +135,13 @@ export default function Dashboard() {
           <Metric label="Cobertura N3" value={`${coberturaN3}%`.replace('.', ',')} />
         </Card>
         <Card>
-          <Metric label="Estado válido" value={`${estadoValido}%`.replace('.', ',')} />
+          <Metric label="Estado Válido" value={`${estadoValido}%`.replace('.', ',')} />
         </Card>
       </div>
 
-      {/* Global Segment Resolution Distribution */}
+      {/* Global Resolution Distribution (Segmentos) */}
       <Card className="mt-3">
-        <div className="text-xs font-bold uppercase tracking-wider text-navy">Distribución de Resolución de Segmentos</div>
+        <div className="text-xs font-bold uppercase tracking-wider text-navy">Distribución de Clasificación de Segmentos</div>
         <div className="mt-3 flex h-6 overflow-hidden rounded-full bg-slate/10 font-mono text-[10px] text-white font-bold">
           <div
             className="flex items-center justify-center bg-navy"

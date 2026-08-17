@@ -19,9 +19,16 @@ export default function Corrida() {
   const importClientesTemplate = useStore((s) => s.importClientesTemplate)
   const lastFile = useStore((s) => s.lastFile)
   const startPipeline = useStore((s) => s.startPipeline)
+  const learned = useStore((s) => s.learned)
 
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
+
+  const totalAprendido =
+    (learned.diccionario || 0) +
+    (learned.estadoDiccionario || 0) +
+    (learned.ciudadEstado || 0) +
+    (learned.maestro || 0)
 
   const handleImportClientesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -41,10 +48,22 @@ export default function Corrida() {
 
   return (
     <div className="max-w-[1240px]">
-      <h1 className="text-lg font-bold text-navy">Corrida · Ingesta de archivo</h1>
-      <p className="mt-1 text-xs text-slate">
-        Carga un archivo CSV o XLSX consolidado para iniciar el pipeline de estandarización.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-navy">Corrida · Ingesta de archivo</h1>
+          <p className="mt-1 text-xs text-slate">
+            Carga un archivo CSV o XLSX consolidado (soporta libros con múltiples hojas) para iniciar el pipeline de estandarización.
+          </p>
+        </div>
+        {totalAprendido > 0 && (
+          <div className="rounded-md border border-green/40 bg-green/10 px-3 py-1.5 text-xs text-green font-medium flex items-center gap-1.5">
+            <span aria-hidden="true">⚡</span>
+            <span>
+              Sincronización activa: <strong>{totalAprendido}</strong> reglas aprendidas ({learned.diccionario} segmentos, {learned.estadoDiccionario} estados, {learned.ciudadEstado} ciudades, {learned.maestro} maestro)
+            </span>
+          </div>
+        )}
+      </div>
  
       <Card className="mt-5">
         {ingest.phase === 'idle' && <DropZone />}
@@ -110,7 +129,7 @@ export default function Corrida() {
                     Descargar plantillas por distribuidor (ZIP)
                   </button>
                   <span className="text-[11px] text-slate">
-                    Piden segmento y estado, con desplegables validados contra los catálogos oficiales.
+                    Piden segmento y estado, con nombres descriptivos y desplegables validados contra los catálogos oficiales.
                   </span>
                 </>
               )}
@@ -165,8 +184,14 @@ export default function Corrida() {
         )}
 
         {ingest.phase === 'error' && (
-          <div className="rounded-md border border-red bg-red/10 px-4 py-3 text-sm font-semibold text-red">
-            {ingest.error}
+          <div className="space-y-4">
+            <div className="rounded-md border border-red bg-red/10 px-4 py-3 text-sm font-semibold text-red">
+              {ingest.error}
+            </div>
+            <div className="pt-2">
+              <div className="text-xs font-bold text-navy mb-2">Intentar con otro archivo:</div>
+              <DropZone />
+            </div>
           </div>
         )}
       </Card>

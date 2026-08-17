@@ -3,13 +3,13 @@
 // EXACTO/FUZZY rows into a MaestroBuilder (seeds only), Pass B resolves each row WITH the
 // full built maestro and serializes it. Kept pure (no DOM, no streaming) so the recovery
 // behaviour — recovered RIFs must come out MAESTRO, uncapped — is directly unit-testable.
-import { normalizeText } from '@/ingest/normalize'
 import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import { resolveSegmento, type SegmentoContext } from '@/pipeline/segmento'
 import { processRow, outputColumns } from '@/pipeline/process-row'
 import { resolveEstado, type EstadoContext } from '@/pipeline/estado'
 import { csvLine } from './csv'
 import { OUTPUT_COLUMNS, type SchemaMap } from '@/contracts/row'
+import { detectClienteCol, detectMesCol } from '@/ingest/schema-detect'
 
 const OUTPUT_HEADER = [...OUTPUT_COLUMNS]
 
@@ -26,11 +26,8 @@ export interface ExportExtraCols {
 
 export function detectExportExtraCols(headers: string[]): ExportExtraCols {
   return {
-    mesCol:
-      headers.find((h) => normalizeText(h) === 'MES') ??
-      headers.find((h) => normalizeText(h).includes('FECHA')) ??
-      null,
-    clienteCol: headers.find((h) => normalizeText(h) === 'CLIENTE') ?? null,
+    mesCol: detectMesCol(headers),
+    clienteCol: detectClienteCol(headers),
   }
 }
 
