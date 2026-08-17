@@ -65,8 +65,11 @@ export default function Cola() {
   const estados = useStore((s) => s.seeds.estados)
   const resolveColaItem = useStore((s) => s.resolveColaItem)
   const setView = useStore((s) => s.setView)
+  const lastFile = useStore((s) => s.lastFile)
+  const startPipeline = useStore((s) => s.startPipeline)
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
+  const [reprocessing, setReprocessing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [filtro, setFiltro] = useState<Filtro>('TODOS')
 
@@ -89,19 +92,45 @@ export default function Cola() {
     try {
       await resolveColaItem(itemId, chosen)
       setToast(`«${valorCrudo}» → ${chosen} · guardado; se aplicará en la próxima corrida.`)
-      window.setTimeout(() => setToast(null), 3600)
+      window.setTimeout(() => setToast(null), 5000)
     } finally {
       setSaving((s) => ({ ...s, [itemId]: false }))
     }
   }
 
+  const handleReprocess = async () => {
+    if (!lastFile) return
+    setReprocessing(true)
+    try {
+      await startPipeline(lastFile)
+      setView('corrida')
+    } finally {
+      setReprocessing(false)
+    }
+  }
+
   return (
     <div className="max-w-[1240px]">
-      <h1 className="text-lg font-bold text-navy">Cola de revisión</h1>
-      <p className="mt-1 text-xs text-slate">
-        Cada resolución actualiza el diccionario de segmentos, el de estados o el maestro — se aplica retroactivamente a
-        todo el histórico en la próxima corrida (R3).
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-navy">Cola de revisión</h1>
+          <p className="mt-1 text-xs text-slate">
+            Cada resolución actualiza el diccionario de segmentos, el de estados o el maestro — se aplica retroactivamente a
+            todo el histórico en la próxima corrida (R3).
+          </p>
+        </div>
+        {lastFile && (
+          <button
+            type="button"
+            disabled={reprocessing}
+            onClick={() => void handleReprocess()}
+            className="rounded-md bg-navy px-3.5 py-2 text-xs font-semibold text-panel hover:bg-navy-deep transition-opacity disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+          >
+            <span>{reprocessing ? 'Procesando…' : '⚡ Re-procesar archivo ahora'}</span>
+            <span className="text-[10px] text-white/70">({lastFile.name})</span>
+          </button>
+        )}
+      </div>
 
       <div className="mt-3 flex flex-wrap gap-1">
         {(['TODOS', 'SEGMENTO', 'ESTADO'] as const).map((f) => (
@@ -119,7 +148,7 @@ export default function Cola() {
         ))}
       </div>
 
-      <div className="mt-3 rounded-md border border-green/60 bg-green/10 px-4 py-2 text-xs text-ink flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-3 rounded-md border border-green/60 bg-green/10 px-4 py-2.5 text-xs text-ink flex flex-wrap items-center justify-between gap-2">
         <span>
           Las clasificaciones se guardan localmente y se aplican en la próxima corrida. Se guardan en este navegador
           (IndexedDB) — no se sincronizan a ningún servidor ni a otros equipos.
@@ -134,8 +163,18 @@ export default function Cola() {
       </div>
 
       {toast ? (
-        <div role="status" className="mt-3 rounded-md bg-navy px-4 py-2 text-xs font-semibold text-white">
-          {toast}
+        <div role="status" className="mt-3 rounded-md bg-navy px-4 py-2.5 text-xs font-semibold text-white flex flex-wrap items-center justify-between gap-2">
+          <span>{toast}</span>
+          {lastFile && (
+            <button
+              type="button"
+              disabled={reprocessing}
+              onClick={() => void handleReprocess()}
+              className="rounded bg-white text-navy px-2.5 py-1 text-xs font-bold hover:bg-panel transition-opacity"
+            >
+              {reprocessing ? 'Procesando…' : '⚡ Re-procesar corrida ahora'}
+            </button>
+          )}
         </div>
       ) : null}
 
@@ -158,9 +197,21 @@ export default function Cola() {
               </div>
 
               {isResolved ? (
-                <div className="mt-3 inline-flex items-center gap-2 rounded bg-green/10 px-3 py-2 text-xs font-semibold text-green">
-                  <span aria-hidden="true">✓</span>
-                  Resuelto → {item.resolucion}
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded bg-green/10 px-3 py-2 text-xs font-semibold text-green">
+                  <div className="flex items-center gap-1.5">
+                    <span aria-hidden="true">✓</span>
+                    <span>Resuelto → {item.resolucion}</span>
+                  </div>
+                  {lastFile && (
+                    <button
+                      type="button"
+                      disabled={reprocessing}
+                      onClick={() => void handleReprocess()}
+                      className="text-[11px] font-bold text-navy hover:underline"
+                    >
+                      Re-procesar corrida para aplicar cambio →
+                    </button>
+                  )}
                 </div>
               ) : (
                 <>

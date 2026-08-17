@@ -22,6 +22,7 @@ export default function Corrida() {
   const learned = useStore((s) => s.learned)
 
   const [importing, setImporting] = useState(false)
+  const [showUploadOther, setShowUploadOther] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
 
   const totalAprendido =
@@ -56,7 +57,7 @@ export default function Corrida() {
           </p>
         </div>
         {totalAprendido > 0 && (
-          <div className="rounded-md border border-green/40 bg-green/10 px-3 py-1.5 text-xs text-green font-medium flex items-center gap-1.5">
+          <div className="rounded-md border border-green/40 bg-green/10 px-3 py-1.5 text-xs text-green font-medium flex items-center gap-1.5 shadow-sm">
             <span aria-hidden="true">⚡</span>
             <span>
               Sincronización activa: <strong>{totalAprendido}</strong> reglas aprendidas ({learned.diccionario} segmentos, {learned.estadoDiccionario} estados, {learned.ciudadEstado} ciudades, {learned.maestro} maestro)
@@ -85,7 +86,7 @@ export default function Corrida() {
  
         {ingest.phase === 'done' && ingest.summary && (
           <div>
-            <div className="rounded-md border border-green bg-bg px-4 py-3 text-sm font-semibold text-green">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-green bg-bg px-4 py-3 text-sm font-semibold text-green">
               <span className="font-mono">
                 {runResult ? (
                   <>
@@ -99,6 +100,15 @@ export default function Corrida() {
                   </>
                 )}
               </span>
+              {lastFile && (
+                <button
+                  type="button"
+                  onClick={() => void startPipeline(lastFile)}
+                  className="rounded bg-navy px-3 py-1.5 text-xs font-semibold text-panel hover:bg-navy-deep transition-opacity flex items-center gap-1.5 shadow-sm"
+                >
+                  <span>🔄 Re-ejecutar corrida con reglas aprendidas</span>
+                </button>
+              )}
             </div>
             <StageBar />
             <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -175,10 +185,29 @@ export default function Corrida() {
                     onClick={() => void startPipeline(lastFile)}
                     className="rounded-md bg-navy px-3 py-1.5 text-xs font-semibold text-panel hover:opacity-90 transition-opacity"
                   >
-                    Re-procesar archivo crudo ({lastFile.name})
+                    Re-procesar archivo ({lastFile.name})
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Option to upload another file */}
+            <div className="mt-6 border-t border-line/60 pt-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate">¿Deseas procesar otro archivo diferente?</span>
+                <button
+                  type="button"
+                  onClick={() => setShowUploadOther(!showUploadOther)}
+                  className="text-xs font-bold text-navy hover:underline"
+                >
+                  {showUploadOther ? 'Ocultar zona de carga' : 'Cargar otro archivo →'}
+                </button>
+              </div>
+              {showUploadOther && (
+                <div className="pt-2">
+                  <DropZone />
+                </div>
+              )}
             </div>
           </div>
         )}
