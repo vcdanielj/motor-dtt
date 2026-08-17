@@ -412,13 +412,15 @@ export default function Manual() {
               por una cola larga de segmentos.
             </ScreenCard>
             <ScreenCard icon="◉" title="Maestro de clientes">
-              La tabla de clientes por RIF con su segmento, macro-canal, método de clasificación, confianza y la
-              regla canónica aplicada. Buscable por RIF o nombre.
+              La tabla de clientes por RIF con su segmento, macro-canal, método de clasificación, confianza, regla canónica aplicada y <strong>desglose multi-sucursal / multi-estado</strong>. Buscable por RIF o nombre.
+            </ScreenCard>
+            <ScreenCard icon="⇄" title="Homologación de Códigos (Alias)">
+              Mapea códigos internos de clientes de distribuidores que no colocan RIF a su RIF canónico y razón social oficial (ej. Campesino <em>BAR-00236</em> → <em>J-402116012</em>). Permite registro interactivo, búsqueda, e importación/exportación CSV.
             </ScreenCard>
             <ScreenCard icon="⚙" title="Configuración">
               Catálogos (37 segmentos, 8 macro-canales, 24 estados, diccionario de segmentos, diccionario de
-              variantes de estado y matriz ciudad→estado) y umbrales del motor, ahora editables. Puedes exportar e
-              importar (CSV) ambos diccionarios y el maestro aprendidos, y hay un botón «Restablecer aprendizaje».
+              variantes de estado, matriz ciudad→estado y base de homologaciones) y umbrales del motor, ahora editables. Puedes exportar e
+              importar (CSV) los diccionarios, homologaciones y el maestro aprendidos, con opción de «Restablecer aprendizaje».
             </ScreenCard>
           </div>
         </section>
