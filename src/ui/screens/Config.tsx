@@ -25,7 +25,7 @@ export default function Config() {
     window.setTimeout(() => setToast(null), 3600)
   }
 
-  const totalAprendido = learned.diccionario + learned.estadoDiccionario + learned.ciudadEstado + learned.maestro
+  const totalAprendido = learned.diccionario + learned.estadoDiccionario + learned.ciudadEstado + learned.aliases + learned.maestro
 
   const tabs: { key: Tab; icon: React.ReactNode; label: string; badge?: number }[] = [
     { key: 'resumen', icon: <StatsIcon />, label: 'Resumen y Umbrales' },

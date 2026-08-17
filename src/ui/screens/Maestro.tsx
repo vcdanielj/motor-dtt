@@ -49,7 +49,29 @@ export default function Maestro() {
       header: 'Confianza',
       render: (m) => <span className="font-mono text-xs text-slate">{dash(m.confianza)}</span>,
     },
-    { key: 'estadoHabitual', header: 'Estado habitual', render: (m) => <span className="text-xs text-slate">{dash(m.estadoHabitual)}</span> },
+    {
+      key: 'estadoHabitual',
+      header: 'Estado / Sedes',
+      render: (m) => {
+        if (!m.sucursales || m.sucursales.length <= 1) {
+          return <span className="text-xs text-slate">{dash(m.estadoHabitual)}</span>
+        }
+        return (
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1">
+              <span className="font-semibold text-xs text-navy">{m.estadoHabitual}</span>
+              <span className="rounded bg-slate/10 px-1.5 py-0.2 text-[10px] font-medium text-slate">
+                {m.sucursales.length} sedes
+              </span>
+            </div>
+            <span className="text-[10px] text-slate/80">
+              {m.sucursales.slice(0, 3).map((s) => `${s.estadoStd} (${s.registros})`).join(', ')}
+              {m.sucursales.length > 3 ? '…' : ''}
+            </span>
+          </div>
+        )
+      },
+    },
     { key: 'reglaCanonica', header: 'Regla canónica', render: (m) => <span className="text-xs text-slate">{dash(m.reglaCanonica)}</span> },
   ]
 

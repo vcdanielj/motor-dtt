@@ -12,12 +12,23 @@ export interface EstadoDiccionarioEntry { variante: string; estadoStd: string; a
  *  cannot anticipate ('EL PARAISO / LAS FUENTES'), so the queue lets a human map them once. */
 export interface CiudadEstadoEntry { ciudad: string; estadoStd: string; activa: boolean }
 
+/** One client code alias mapping (e.g. Campesino's BAR-00236 -> canonical RIF). */
+export interface ClienteAliasEntry {
+  distribuidor: string
+  codigoCliente: string
+  rifCanonico: string
+  razonSocial?: string
+  estadoStd?: string
+  activa: boolean
+}
+
 export interface SeedCatalogs {
   segmentos: SegmentoSeed[]
   estados: string[]
   ciudadEstado: Record<string, string>
   diccionario: DiccionarioEntry[]
   estadoDiccionario: EstadoDiccionarioEntry[]
+  aliases?: ClienteAliasEntry[]
   provenance: { source: string; placeholder: boolean }
 }
 

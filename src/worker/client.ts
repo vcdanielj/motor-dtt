@@ -1,15 +1,15 @@
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
-import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 
-// Learned config (Sprint 2 · C1): the merged dictionaries + persisted manual classifications the
-// store loads via loadRunConfig(). Optional so existing callers (and their fakes) keep working —
-// the worker defaults to the embedded SEEDS + no manual maestro when omitted.
+// Learned config (Sprint 2 · C1): the merged dictionaries + persisted manual classifications + aliases
+// the store loads via loadRunConfig(). Optional so existing callers (and their fakes) keep working.
 export interface LearnedConfig {
   diccionario: DiccionarioEntry[]
   estadoDiccionario: EstadoDiccionarioEntry[]
   ciudadEstado: Record<string, string>
   manualMaestro: MaestroEntry[]
+  aliases?: ClienteAliasEntry[]
 }
 
 // Editable fuzzy thresholds (Sprint 2 · C3), persisted in IndexedDB meta and loaded into the
@@ -53,6 +53,7 @@ export function runPipeline(
       file, mode: 'pipeline',
       diccionario: learned?.diccionario, estadoDiccionario: learned?.estadoDiccionario,
       ciudadEstado: learned?.ciudadEstado, manualMaestro: learned?.manualMaestro,
+      aliases: learned?.aliases,
       fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })
@@ -82,6 +83,7 @@ export function runExport(
       file, mode: 'export', versionDiccionario, runId,
       diccionario: learned?.diccionario, estadoDiccionario: learned?.estadoDiccionario,
       ciudadEstado: learned?.ciudadEstado, manualMaestro: learned?.manualMaestro,
+      aliases: learned?.aliases,
       fuzzyThreshold: thresholds?.fuzzyThreshold, fuzzySuggestFloor: thresholds?.fuzzySuggestFloor,
     })
   })

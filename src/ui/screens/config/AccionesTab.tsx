@@ -33,18 +33,20 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
   const learned = useStore((s) => s.learned)
   const exportLearnedDiccionario = useStore((s) => s.exportLearnedDiccionario)
   const exportLearnedEstados = useStore((s) => s.exportLearnedEstados)
+  const exportLearnedAliases = useStore((s) => s.exportLearnedAliases)
   const exportManualMaestro = useStore((s) => s.exportManualMaestro)
   const importDiccionarioCsv = useStore((s) => s.importDiccionarioCsv)
   const importEstadoDiccionarioCsv = useStore((s) => s.importEstadoDiccionarioCsv)
+  const importAliasesCsv = useStore((s) => s.importAliasesCsv)
   const importClientesTemplate = useStore((s) => s.importClientesTemplate)
   const resetLearned = useStore((s) => s.resetLearned)
 
-  const [busy, setBusy] = useState<'diccionario' | 'estados' | 'clientes' | null>(null)
+  const [busy, setBusy] = useState<'diccionario' | 'estados' | 'aliases' | 'clientes' | null>(null)
   const [confirmingReset, setConfirmingReset] = useState(false)
   const [resetting, setResetting] = useState(false)
 
   const importar = async (
-    key: 'diccionario' | 'estados' | 'clientes',
+    key: 'diccionario' | 'estados' | 'aliases' | 'clientes',
     e: ChangeEvent<HTMLInputElement>,
     run: (file: File) => Promise<{ added: number; skipped: number }>,
     mensaje: (r: { added: number; skipped: number }) => string,
@@ -77,6 +79,7 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
     { label: 'Entradas de diccionario aprendidas', value: learned.diccionario },
     { label: 'Variantes de estado aprendidas', value: learned.estadoDiccionario },
     { label: 'Ciudades aprendidas', value: learned.ciudadEstado },
+    { label: 'Homologaciones de códigos (alias)', value: learned.aliases },
     { label: 'Clasificaciones manuales de maestro', value: learned.maestro },
   ]
 
@@ -116,6 +119,14 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
 
           <button
             type="button"
+            onClick={() => void exportLearnedAliases()}
+            className="inline-flex items-center justify-center rounded-lg border border-line bg-panel px-4 py-2 text-xs font-bold text-navy hover:bg-bg transition-all"
+          >
+            Exportar homologación alias
+          </button>
+
+          <button
+            type="button"
             onClick={() => void exportManualMaestro()}
             className="inline-flex items-center justify-center rounded-lg border border-line bg-panel px-4 py-2 text-xs font-bold text-navy hover:bg-bg transition-all"
           >
@@ -139,6 +150,14 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
           />
 
           <ImportButton
+            label="Importar homologación de alias (CSV)"
+            accept=".csv,text/csv"
+            busy={busy === 'aliases'}
+            onFile={(e) => void importar('aliases', e, importAliasesCsv,
+              ({ added, skipped }) => `${added} alias de clientes añadidos · ${skipped} omitidos`)}
+          />
+
+          <ImportButton
             label="Importar planilla de clientes (XLSX / CSV)"
             accept={XLSX_ACCEPT}
             busy={busy === 'clientes'}
@@ -150,6 +169,7 @@ export default function AccionesTab({ showToast }: { showToast: (msg: string) =>
         <p className="text-[10px] text-slate mt-3 leading-relaxed">
           El CSV de estados espera las columnas <code className="font-mono">variante</code> y{' '}
           <code className="font-mono">estado_std</code>; cada estado debe coincidir con el catálogo oficial de 24.
+          La homologación de alias espera <code className="font-mono">distribuidor</code>, <code className="font-mono">codigo_cliente</code> y <code className="font-mono">rif_canonico</code>.
           La planilla de clientes acepta tanto el formato con estilo (encabezados en la fila 4) como el plano.
         </p>
       </div>

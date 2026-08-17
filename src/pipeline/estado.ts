@@ -2,6 +2,7 @@ import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import type { MetodoEstado, FlagRegistro } from '@/contracts/row'
 import type { EstadoDiccionarioEntry } from '@/contracts/config'
 import { bestMatch } from './fuzzy'
+import { parseGeoLocation } from './geo-parser'
 
 export interface EstadoResult {
   estadoStd: string | null
@@ -177,11 +178,25 @@ export function resolveEstado(
     if (rifEstado) return resuelto(rifEstado, 'RIF')
   }
 
-  // 4. CIUDAD — ciudad_estado lookup (seed ++ learned).
+  // 4. CIUDAD — ciudad_estado lookup (seed ++ learned) or semantic geo-parser.
   const c = normalizeText(input.ciudad ?? '')
   if (c !== '' && !isProhibitedCiudad(c)) {
     const ciudadEstado = ctx.ciudadEstado.get(c)
     if (ciudadEstado) return resuelto(ciudadEstado, 'CIUDAD')
+
+    // Contextual semantic geo-parse on ciudad (e.g. 'Aragua de Barcelona', 'Av Fuerzas Armadas')
+    const geoHit = parseGeoLocation(c)
+    if (geoHit && ctx.catalogo.has(normalizeText(geoHit.estadoStd))) {
+      return resuelto(normalizeText(geoHit.estadoStd), 'CIUDAD')
+    }
+  }
+
+  // If estadoCrudo contained a compound city/address name (e.g. distributor typed 'Aragua de Barcelona' in estado col)
+  if (raw !== '' && !isProhibitedEstado(raw)) {
+    const geoHitRaw = parseGeoLocation(raw)
+    if (geoHitRaw && ctx.catalogo.has(normalizeText(geoHitRaw.estadoStd))) {
+      return resuelto(normalizeText(geoHitRaw.estadoStd), 'DICCIONARIO')
+    }
   }
 
   // 5./6. FUZZY against the catalog ∪ dictionary keys, then the suggestion band.

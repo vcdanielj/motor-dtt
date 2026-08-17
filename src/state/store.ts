@@ -5,20 +5,22 @@ import JSZip from 'jszip'
 import { adapters } from '@/adapters'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
 import {
-  getLearnedDiccionario, getLearnedEstados, getLearnedCiudades, getManualMaestro,
-  putLearnedDiccionario, putLearnedEstado, putLearnedCiudad, putManualMaestro,
+  getLearnedDiccionario, getLearnedEstados, getLearnedCiudades, getManualMaestro, getLearnedAliases,
+  putLearnedDiccionario, putLearnedEstado, putLearnedCiudad, putManualMaestro, putLearnedAlias,
   getMeta, putMeta, clearLearned,
   deleteLearnedDiccionario as dbDeleteLearnedDiccionario,
   deleteLearnedEstado as dbDeleteLearnedEstado,
   deleteLearnedCiudad as dbDeleteLearnedCiudad,
+  deleteLearnedAlias as dbDeleteLearnedAlias,
   deleteManualMaestro as dbDeleteManualMaestro,
 } from '@/storage/db'
-import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 import { loadRunConfig } from '@/storage/run-config'
 import { csvDocument } from '@/reports/csv'
 import {
   buildClientesWorkbook, etiquetaFalta, matchEstado, matchSegmento, parsePlantillaClientes,
+  sanitizeDistributorFilename,
   HOJA_CLIENTES, TEMPLATE_HEADERS, type FilaPlantilla,
 } from '@/reports/plantilla-clientes'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
@@ -67,10 +69,11 @@ interface StoreState {
   exportError: string | null
   // Counts of what the analyst has taught the motor so far, persisted in IndexedDB (Sprint 2 ·
   // C1) — populated on init and after any write, shown read-only in Config.
-  learned: { diccionario: number; estadoDiccionario: number; ciudadEstado: number; maestro: number }
+  learned: { diccionario: number; estadoDiccionario: number; ciudadEstado: number; maestro: number; aliases: number }
   learnedDiccionarioList: DiccionarioEntry[]
   learnedEstadoList: EstadoDiccionarioEntry[]
   learnedCiudadList: CiudadEstadoEntry[]
+  learnedAliasesList: ClienteAliasEntry[]
   manualMaestroList: MaestroEntry[]
   // Editable fuzzy thresholds (Sprint 2 · C3): loaded from meta on init, applied to every
   // subsequent pipeline/export run via the worker message.
@@ -85,9 +88,11 @@ interface StoreState {
   resolveColaItem: (id: string, segmentoN3: string) => Promise<void>
   exportLearnedDiccionario: () => Promise<void>
   exportLearnedEstados: () => Promise<void>
+  exportLearnedAliases: () => Promise<void>
   exportManualMaestro: () => Promise<void>
   importDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
   importEstadoDiccionarioCsv: (file: File) => Promise<{ added: number; skipped: number }>
+  importAliasesCsv: (file: File) => Promise<{ added: number; skipped: number }>
   exportUnclassifiedTemplate: () => Promise<void>
   exportUnclassifiedZip: () => Promise<void>
   importClientesTemplate: (file: File) => Promise<{ added: number; skipped: number }>
@@ -96,6 +101,8 @@ interface StoreState {
   deleteLearnedDiccionario: (variante: string) => Promise<void>
   deleteLearnedEstado: (variante: string) => Promise<void>
   deleteLearnedCiudad: (ciudad: string) => Promise<void>
+  deleteLearnedAlias: (distribuidor: string, codigoCliente: string) => Promise<void>
+  putLearnedAlias: (entry: ClienteAliasEntry) => Promise<void>
   deleteManualMaestro: (rif: string) => Promise<void>
 }
 
@@ -120,10 +127,11 @@ export const useStore = create<StoreState>((set, get) => ({
   exportState: 'idle',
   exportRows: 0,
   exportError: null,
-  learned: { diccionario: 0, estadoDiccionario: 0, ciudadEstado: 0, maestro: 0 },
+  learned: { diccionario: 0, estadoDiccionario: 0, ciudadEstado: 0, maestro: 0, aliases: 0 },
   learnedDiccionarioList: [],
   learnedEstadoList: [],
   learnedCiudadList: [],
+  learnedAliasesList: [],
   manualMaestroList: [],
   thresholds: { fuzzyThreshold: 92, fuzzySuggestFloor: 80 },
   stageStatuses: {},
@@ -219,8 +227,8 @@ export const useStore = create<StoreState>((set, get) => ({
   // Reads persisted counts and full arrays from IndexedDB (best-effort — [] when unavailable) so Config can show
   // what's been learned so far and allow editing. Called on app init and safe to re-call after any storage write.
   refreshLearned: async () => {
-    const [diccionario, estadoDiccionario, ciudadEstado, maestro] = await Promise.all([
-      getLearnedDiccionario(), getLearnedEstados(), getLearnedCiudades(), getManualMaestro(),
+    const [diccionario, estadoDiccionario, ciudadEstado, maestro, aliases] = await Promise.all([
+      getLearnedDiccionario(), getLearnedEstados(), getLearnedCiudades(), getManualMaestro(), getLearnedAliases(),
     ])
     set({
       learned: {
@@ -228,10 +236,12 @@ export const useStore = create<StoreState>((set, get) => ({
         estadoDiccionario: estadoDiccionario.length,
         ciudadEstado: ciudadEstado.length,
         maestro: maestro.length,
+        aliases: aliases.length,
       },
       learnedDiccionarioList: diccionario,
       learnedEstadoList: estadoDiccionario,
       learnedCiudadList: ciudadEstado,
+      learnedAliasesList: aliases,
       manualMaestroList: maestro,
     })
   },
@@ -245,6 +255,14 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   deleteLearnedCiudad: async (ciudad) => {
     await dbDeleteLearnedCiudad(ciudad)
+    await get().refreshLearned()
+  },
+  deleteLearnedAlias: async (distribuidor, codigoCliente) => {
+    await dbDeleteLearnedAlias(distribuidor, codigoCliente)
+    await get().refreshLearned()
+  },
+  putLearnedAlias: async (entry) => {
+    await putLearnedAlias(entry)
     await get().refreshLearned()
   },
   deleteManualMaestro: async (rif) => {
@@ -326,6 +344,15 @@ export const useStore = create<StoreState>((set, get) => ({
     const blob = new Blob([doc], { type: 'text/csv;charset=utf-8;' })
     await adapters.saveBlob(blob, 'diccionario_estados_aprendido.csv')
   },
+  exportLearnedAliases: async () => {
+    const aliases = await getLearnedAliases()
+    const doc = csvDocument([
+      ['distribuidor', 'codigo_cliente', 'rif_canonico', 'razon_social', 'estado_std'],
+      ...aliases.map((a) => [a.distribuidor, a.codigoCliente, a.rifCanonico, a.razonSocial ?? '', a.estadoStd ?? '']),
+    ])
+    const blob = new Blob([doc], { type: 'text/csv;charset=utf-8;' })
+    await adapters.saveBlob(blob, 'homologacion_codigos_clientes.csv')
+  },
   exportManualMaestro: async () => {
     const maestro = await getManualMaestro()
     const doc = csvDocument([
@@ -404,6 +431,48 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().refreshLearned()
     return { added, skipped }
   },
+  // Imports client code aliases CSV: distribuidor, codigo_cliente, rif_canonico, razon_social, estado_std
+  importAliasesCsv: async (file) => {
+    const text = await file.text()
+    const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true })
+    const fields = parsed.meta.fields ?? []
+    const normHeader = (h: string) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+    const distKey = fields.find((f) => normHeader(f) === 'distribuidor')
+    const codKey = fields.find((f) => normHeader(f) === 'codigocliente' || normHeader(f) === 'codcliente' || normHeader(f) === 'codigo')
+    const rifKey = fields.find((f) => normHeader(f) === 'rifcanonico' || normHeader(f) === 'rif')
+    const razonKey = fields.find((f) => normHeader(f) === 'razonsocial' || normHeader(f) === 'cliente')
+    const estadoKey = fields.find((f) => normHeader(f) === 'estadostd' || normHeader(f) === 'estado')
+
+    let added = 0
+    let skipped = 0
+    if (distKey && codKey && rifKey) {
+      for (const row of parsed.data) {
+        const distribuidor = (row[distKey] ?? '').trim()
+        const codigoCliente = (row[codKey] ?? '').trim()
+        const rifCanonico = normalizeRif(row[rifKey] ?? '')
+        const razonSocial = razonKey ? (row[razonKey] ?? '').trim() : undefined
+        const estadoStd = estadoKey ? (row[estadoKey] ?? '').trim() : undefined
+        if (!distribuidor || !codigoCliente || !rifCanonico) {
+          skipped++
+          continue
+        }
+        await putLearnedAlias({
+          distribuidor,
+          codigoCliente,
+          rifCanonico,
+          razonSocial: razonSocial || undefined,
+          estadoStd: estadoStd || undefined,
+          activa: true,
+        })
+        added++
+      }
+    } else {
+      skipped = parsed.data.length
+    }
+
+    await get().refreshLearned()
+    return { added, skipped }
+  },
   exportUnclassifiedTemplate: async () => {
     const { runResult, runId } = get()
     if (!runResult || !runId || !runResult.clientesSinClasificar.length) return
@@ -454,8 +523,8 @@ export const useStore = create<StoreState>((set, get) => ({
       for (const [dist, list] of byDist) {
         const workbook = buildClientesWorkbook(list, segmentos, estados)
         const buffer = await workbook.xlsx.writeBuffer()
-        const safeDistName = dist.replace(/[^a-zA-Z0-9_-]/g, '_')
-        zip.file(`planilla_clientes_pendientes_${safeDistName}.xlsx`, buffer)
+        const filename = sanitizeDistributorFilename(dist, 'Plantilla_Clientes')
+        zip.file(filename, buffer)
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' })

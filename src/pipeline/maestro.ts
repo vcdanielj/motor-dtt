@@ -1,6 +1,6 @@
 import { normalizeRif } from '@/ingest/normalize'
 import type { MetodoSegmento } from '@/contracts/row'
-import type { MaestroEntry } from '@/contracts/maestro'
+import type { MaestroEntry, ClienteSucursal } from '@/contracts/maestro'
 
 export interface Observation {
   rif: string
@@ -10,6 +10,8 @@ export interface Observation {
   fechaOrden: number | null       // sortable recency key, higher = more recent. Null if unknown.
   razonSocial?: string | null     // optional client name (first seen wins)
   estadoStd?: string | null       // resolved state
+  sucursal?: string | null        // branch code or name
+  ciudad?: string | null          // branch city
 }
 
 /** A cross-macro conflict: this RIF was observed under more than one macro-canal — CONFLICTO_MAYOR. */
@@ -32,12 +34,21 @@ interface SegmentoAggregate {
   hasManual: boolean
 }
 
+interface SucursalAggregate {
+  codigoSucursal?: string
+  nombreSucursal?: string
+  estadoStd: string
+  ciudad?: string
+  count: number
+}
+
 interface RifAggregate {
   rawRif: string                              // first seen raw rif
   razonSocial: string | null                   // first non-empty seen
   registros: number
   segmentos: Map<string, SegmentoAggregate>    // segmentoN3 -> aggregate
   estados: Map<string, number>                 // estadoStd -> count
+  sucursales: Map<string, SucursalAggregate>   // key -> branch aggregate
 }
 
 /** Accumulates per-row observations into compact per-RIF aggregates (not a growing row list),
@@ -55,7 +66,7 @@ export class MaestroBuilder {
 
     let agg = this.rifs.get(key)
     if (!agg) {
-      agg = { rawRif: o.rif, razonSocial: null, registros: 0, segmentos: new Map(), estados: new Map() }
+      agg = { rawRif: o.rif, razonSocial: null, registros: 0, segmentos: new Map(), estados: new Map(), sucursales: new Map() }
       this.rifs.set(key, agg)
     }
     if ((agg.razonSocial == null || agg.razonSocial === '') && o.razonSocial) {
@@ -65,6 +76,20 @@ export class MaestroBuilder {
 
     if (o.estadoStd) {
       agg.estados.set(o.estadoStd, (agg.estados.get(o.estadoStd) ?? 0) + 1)
+
+      const sucKey = `${o.sucursal ?? ''}::${o.estadoStd}::${o.ciudad ?? ''}`
+      let sucAgg = agg.sucursales.get(sucKey)
+      if (!sucAgg) {
+        sucAgg = {
+          codigoSucursal: o.sucursal ?? undefined,
+          nombreSucursal: o.sucursal ?? undefined,
+          estadoStd: o.estadoStd,
+          ciudad: o.ciudad ?? undefined,
+          count: 0,
+        }
+        agg.sucursales.set(sucKey, sucAgg)
+      }
+      sucAgg.count++
     }
 
     if (o.segmentoN3 == null || o.segmentoN3.trim() === '') return
@@ -92,6 +117,16 @@ export class MaestroBuilder {
     for (const [key, agg] of this.rifs) {
       const segEntries = [...agg.segmentos.entries()]
 
+      const sucursalesList: ClienteSucursal[] = [...agg.sucursales.values()]
+        .map((s) => ({
+          codigoSucursal: s.codigoSucursal,
+          nombreSucursal: s.nombreSucursal,
+          estadoStd: s.estadoStd,
+          ciudad: s.ciudad,
+          registros: s.count,
+        }))
+        .sort((a, b) => b.registros - a.registros)
+
       // Estado-only client: no row ever resolved a segment, but at least one resolved a state.
       // It still earns a maestro entry so the estado cascade's RIF step can recover the client's
       // other rows. segmentoN3/macroN1 stay null and resolveSegmento skips such entries, so this
@@ -107,6 +142,7 @@ export class MaestroBuilder {
           metodo: null,
           confianza: null,
           estadoHabitual,
+          sucursales: sucursalesList.length > 0 ? sucursalesList : undefined,
           fechaClasificacion: null,
           reglaCanonica: null,
         })
@@ -140,6 +176,7 @@ export class MaestroBuilder {
         metodo: 'MAESTRO',
         confianza: 'N3',
         estadoHabitual,
+        sucursales: sucursalesList.length > 0 ? sucursalesList : undefined,
         fechaClasificacion: null,
         reglaCanonica,
       })

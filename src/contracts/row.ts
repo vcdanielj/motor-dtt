@@ -24,6 +24,8 @@ export interface SchemaMap {
   segmentoCrudo: string | null
   estadoCrudo: string | null
   ciudad: string | null
+  codigoCliente?: string | null
+  sucursal?: string | null
   // money/date fields are passed through untouched; recorded for reporting only
   passthrough: string[]
   /** headers that could not be mapped to any known field */

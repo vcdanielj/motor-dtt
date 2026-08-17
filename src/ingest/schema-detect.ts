@@ -146,7 +146,16 @@ const RIF_FALSOS_AMIGOS = [
 const hasWord = (n: string, needle: string) => ` ${n} `.includes(` ${needle} `)
 
 export function detectSchema(headers: string[]): SchemaMap {
-  const map: SchemaMap = { rif: null, segmentoCrudo: null, estadoCrudo: null, ciudad: null, passthrough: [], unmapped: [] }
+  const map: SchemaMap = {
+    rif: null,
+    segmentoCrudo: null,
+    estadoCrudo: null,
+    ciudad: null,
+    codigoCliente: null,
+    sucursal: null,
+    passthrough: [],
+    unmapped: [],
+  }
   for (const h of headers) {
     const n = norm(h)
     if (ESTADO_FALSOS_AMIGOS.some((f) => hasWord(n, f) || n === f)) {
@@ -160,6 +169,16 @@ export function detectSchema(headers: string[]): SchemaMap {
     const hit = ALIASES.find((a) => a.needles.some((needle) => hasWord(n, needle)))
     if (hit && map[hit.field] === null) {
       map[hit.field] = h
+      continue
+    }
+    // Check for client code column (when different from RIF)
+    if (!map.codigoCliente && /(COD|CODIGO|ID)\s*(CLIENTE|CTA|LOCAL|CLI|COMPRADOR)/.test(n) && !/(RIF|CEDULA|DOC)/.test(n)) {
+      map.codigoCliente = h
+      continue
+    }
+    // Check for branch / sucursal column
+    if (!map.sucursal && /(SUCURSAL|AGENCIA|SEDE|PUNTO DE VENTA|NOMBRE SUCURSAL|COD SUCURSAL)/.test(n) && !/(DISTRIBUIDOR|MAYORISTA)/.test(n)) {
+      map.sucursal = h
       continue
     }
     // known money/date/volume passthroughs
@@ -187,28 +206,77 @@ export function isDataSheetSchema(s: SchemaMap | null): boolean {
 /** Finds the distributor column, strictly prioritizing textual names over numeric codes (Audio 1). */
 export function detectDistCol(headers: string[]): string | null {
   const clean = headers.map((h) => ({ original: h, n: norm(h) }))
+  const hasCodeIndicator = (n: string) => /\b(COD|CODIGO|ID|JDE|CVE|NUM|NRO|ENTREGA|DIR)\b/.test(n)
 
-  // 1. Explicit name / description / mayorista / sucursal
+  // 1. Explicit textual name / description / mayorista / sucursal
+  const byExplicitName = clean.find(
+    (c) =>
+      (c.n === 'NOMBRE DISTRIBUIDOR' ||
+        c.n === 'DISTRIBUIDOR NOMBRE' ||
+        c.n === 'RAZON SOCIAL DISTRIBUIDOR' ||
+        c.n === 'DESCRIPCION DISTRIBUIDOR' ||
+        c.n === 'DISTRIBUIDOR' ||
+        c.n === 'MAYORISTA' ||
+        c.n === 'DIST' ||
+        c.n === 'NOMBRE MAYORISTA') &&
+      !hasCodeIndicator(c.n)
+  )
+  if (byExplicitName) return byExplicitName.original
+
+  // 2. Contains name keywords without code indicators
   const byName = clean.find(
     (c) =>
-      (c.n.includes('DISTRIBUIDOR') || c.n.includes('MAYORISTA') || c.n === 'DIST' || c.n.includes('SUCURSAL') || c.n.includes('AGENCIA')) &&
-      !c.n.includes('COD') &&
-      !c.n.includes('ID') &&
-      !c.n.includes('DIR') &&
-      !c.n.includes('JDE') &&
-      !c.n.includes('ENTREGA') &&
-      !c.n.includes('CVE') &&
-      !c.n.includes('NUM') &&
-      !c.n.includes('NRO')
+      (c.n.includes('DISTRIBUIDOR') || c.n.includes('MAYORISTA') || c.n.includes('AGENCIA')) &&
+      !hasCodeIndicator(c.n)
   )
   if (byName) return byName.original
 
-  // 2. Any distributor header except JDE/Entrega
+  // 3. Any distributor header except JDE/Entrega
   const byRegexNoJde = headers.find((h) => /distribuidor/i.test(h) && !/jde/i.test(h) && !/entrega/i.test(h))
   if (byRegexNoJde) return byRegexNoJde
 
-  // 3. Fallback
+  // 4. Fallback
   return headers.find((h) => /distribuidor/i.test(h)) ?? null
+}
+
+/** Finds the internal client code column (distributor-specific client ID). */
+export function detectCodigoClienteCol(headers: string[]): string | null {
+  const clean = headers.map((h) => ({ original: h, n: norm(h) }))
+  const hit = clean.find(
+    (c) =>
+      (c.n === 'COD CLIENTE' ||
+        c.n === 'CODIGO CLIENTE' ||
+        c.n === 'CODIGO DEL CLIENTE' ||
+        c.n === 'COD CLI' ||
+        c.n === 'CODIGO CLI' ||
+        c.n === 'ID CLIENTE' ||
+        c.n === 'ID_CLIENTE' ||
+        c.n === 'COD_CLIENTE' ||
+        c.n === 'CODIGO' ||
+        c.n === 'COD_LOCAL') &&
+      !c.n.includes('RIF') &&
+      !c.n.includes('CEDULA') &&
+      !c.n.includes('DIST')
+  )
+  return hit ? hit.original : null
+}
+
+/** Finds the branch / sucursal column. */
+export function detectSucursalCol(headers: string[]): string | null {
+  const clean = headers.map((h) => ({ original: h, n: norm(h) }))
+  const hit = clean.find(
+    (c) =>
+      (c.n === 'SUCURSAL' ||
+        c.n === 'NOMBRE SUCURSAL' ||
+        c.n === 'SEDE' ||
+        c.n === 'AGENCIA' ||
+        c.n === 'TIENDA' ||
+        c.n === 'COD SUCURSAL' ||
+        c.n === 'PUNTO DE VENTA') &&
+      !c.n.includes('DISTRIBUIDOR') &&
+      !c.n.includes('MAYORISTA')
+  )
+  return hit ? hit.original : null
 }
 
 /** Finds the client name / razon social column, strictly prioritizing descriptive names over codes (Audio 1). */

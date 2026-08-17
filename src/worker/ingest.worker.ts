@@ -6,6 +6,8 @@ import {
   detectClienteCol,
   detectMesCol,
   detectTonCol,
+  detectCodigoClienteCol,
+  detectSucursalCol,
   findBestHeaderRow,
 } from '@/ingest/schema-detect'
 import { streamXlsxWorkbook } from '@/ingest/xlsx-stream'
@@ -18,6 +20,7 @@ import { createColaAccumulator, stableId } from '@/pipeline/cola'
 import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import { applyEstadoRecovery, applyMaestroRecovery, type UnresueltoTally } from '@/pipeline/recovery'
 import { processRow, type ResolvedRow } from '@/pipeline/process-row'
+import { buildAliasIndex, resolveAlias } from '@/pipeline/alias'
 import { pct1 } from '@/lib/num'
 import {
   detectExportExtraCols,
@@ -38,7 +41,7 @@ import type {
 import type { DistribuidorRow } from '@/contracts/dist'
 import type { ColaItem } from '@/contracts/cola'
 import type { SchemaMap } from '@/contracts/row'
-import type { DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 
 // Recency key stamped on manual classifications (from Config import or Cola resolution) so they
@@ -56,6 +59,7 @@ interface WorkerRequest {
   estadoDiccionario?: EstadoDiccionarioEntry[]
   ciudadEstado?: Record<string, string>
   manualMaestro?: MaestroEntry[]
+  aliases?: ClienteAliasEntry[]
   fuzzyThreshold?: number
   fuzzySuggestFloor?: number
 }
@@ -77,6 +81,7 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
     estadoDiccionario: ev.data.estadoDiccionario ?? SEEDS.estadoDiccionario,
     ciudadEstado: ev.data.ciudadEstado ?? SEEDS.ciudadEstado,
     manualMaestro: ev.data.manualMaestro ?? [],
+    aliases: ev.data.aliases ?? [],
     fuzzyThreshold: ev.data.fuzzyThreshold ?? 92,
     fuzzySuggestFloor: ev.data.fuzzySuggestFloor ?? 80,
   }
@@ -96,6 +101,7 @@ interface ResolutionConfig {
   estadoDiccionario: EstadoDiccionarioEntry[]
   ciudadEstado: Record<string, string>
   manualMaestro: MaestroEntry[]
+  aliases: ClienteAliasEntry[]
   fuzzyThreshold: number
   fuzzySuggestFloor: number
 }
@@ -348,6 +354,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
   const estado: EstadoTally = newEstadoTally()
   const maestroBuilder = new MaestroBuilder()
   seedManualMaestro(maestroBuilder, cfg.manualMaestro)
+  const aliasIndex = buildAliasIndex(cfg.aliases)
   const unresueltoPorRif = new Map<string, UnresueltoTally>()
   const unresueltoDistRif = new Map<string, Map<string, number>>()
   const sinEstadoPorRif = new Map<string, number>()
@@ -359,6 +366,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
   let tonCol: string | null = null
   let mesCol: string | null = null
   let clienteCol: string | null = null
+  let codClienteCol: string | null = null
+  let sucursalCol: string | null = null
   let rows = 0
   let crudoPresent = 0
   let tonTotal = 0
@@ -376,6 +385,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     tonCol = detectTonCol(headers)
     mesCol = detectMesCol(headers)
     clienteCol = detectClienteCol(headers)
+    codClienteCol = detectCodigoClienteCol(headers)
+    sucursalCol = detectSucursalCol(headers)
     post({ type: 'stage', stageIndex: 0, status: 'running', detail: 'Leyendo archivo…' })
     post({ type: 'stage', stageIndex: 1, status: 'running', detail: 'Normalizando textos…' })
     post({ type: 'stage', stageIndex: 2, status: 'running', detail: 'Resolviendo segmentos…' })
@@ -386,10 +397,21 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     const s = schema!
     const segCrudo = (s.segmentoCrudo ? rec[s.segmentoCrudo] : '') ?? ''
     const estCrudo = (s.estadoCrudo ? rec[s.estadoCrudo] : '') ?? ''
-    const rif = (s.rif ? rec[s.rif] : '') ?? ''
+    const rawRif = (s.rif ? rec[s.rif] : '') ?? ''
     const ciudad = (s.ciudad ? rec[s.ciudad] : '') ?? ''
     const ton = tonCol ? parseNumeric(rec[tonCol]) : 0
     const distribuidor = (distCol ? rec[distCol] : '')?.trim() || 'SIN_DISTRIBUIDOR'
+
+    // Alias resolution for distributor client codes lacking RIF
+    let rif = rawRif
+    const codCli = codClienteCol ? rec[codClienteCol] : (s.codigoCliente ? rec[s.codigoCliente] : '')
+    if (!normalizeRif(rif) && codCli) {
+      const alias = resolveAlias(distribuidor, codCli, aliasIndex)
+      if (alias) {
+        rif = alias.rifCanonico
+      }
+    }
+    const sucursalVal = sucursalCol ? rec[sucursalCol] : (s.sucursal ? rec[s.sucursal] : null)
 
     const segKey = normalizeText(segCrudo)
     const cacheKey = `${segKey}|${normalizeText(estCrudo)}|${normalizeText(ciudad)}`
@@ -406,8 +428,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     const flagRegistro = resolved.flagRegistro
 
     rows++
-    if (s.rif) {
-      const v = normalizeText(rif)
+    if (s.rif || rif) {
+      const v = normalizeText(rif || rawRif)
       if (v) clientes.add(v)
     }
     distribuidoresVistos.add(distribuidor)
@@ -433,6 +455,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
         fechaOrden: mesCol ? parseFechaOrden(rec[mesCol]) : null,
         razonSocial: clienteCol ? rec[clienteCol] : null,
         estadoStd: resolved.estadoStd,
+        sucursal: sucursalVal || null,
+        ciudad: ciudad || null,
       })
     } else {
       if (resolved.estadoStd) {
@@ -444,6 +468,8 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
           fechaOrden: null,
           razonSocial: clienteCol ? rec[clienteCol] : null,
           estadoStd: resolved.estadoStd,
+          sucursal: sucursalVal || null,
+          ciudad: ciudad || null,
         })
       }
     }
@@ -715,7 +741,7 @@ async function runExport(file: File, versionDiccionario: string, runId: string, 
     const builder = new MaestroBuilder()
     seedManualMaestro(builder, cfg.manualMaestro)
     let schemaA: SchemaMap | null = null
-    let extraCols: ExportExtraCols = { mesCol: null, clienteCol: null }
+    let extraCols: ExportExtraCols = { mesCol: null, clienteCol: null, sucursalCol: null, codigoClienteCol: null, distCol: null }
     const passA = await streamRecords(
       file,
       kind,

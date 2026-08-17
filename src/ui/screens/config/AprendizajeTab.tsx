@@ -2,23 +2,25 @@ import { useMemo, useState } from 'react'
 import { useStore } from '@/state/store'
 import { SearchBox, SubTab, TrashIcon } from './icons'
 
-type Sub = 'diccionario' | 'estados' | 'ciudades' | 'maestro'
+type Sub = 'diccionario' | 'estados' | 'ciudades' | 'aliases' | 'maestro'
 
 /** Case-insensitive "any field contains the query"; an empty query matches everything. Defined at
  *  module scope so it is a stable reference and the memos can depend on (list, query) alone. */
-const matches = (q: string, ...fields: (string | null)[]) =>
+const matches = (q: string, ...fields: (string | null | undefined)[]) =>
   !q || fields.some((f) => (f ?? '').toLowerCase().includes(q))
 
 /** Tab 3: everything the analyst has taught the motor, per store, with per-entry deletion.
- *  Three stores now: the segment dictionary, the estado dictionary, and the manual maestro. */
+ *  Stores: segment dictionary, estado dictionary, ciudadEstado, aliases, and manual maestro. */
 export default function AprendizajeTab({ showToast }: { showToast: (msg: string) => void }) {
   const learnedDiccionarioList = useStore((s) => s.learnedDiccionarioList)
   const learnedEstadoList = useStore((s) => s.learnedEstadoList)
   const learnedCiudadList = useStore((s) => s.learnedCiudadList)
+  const learnedAliasesList = useStore((s) => s.learnedAliasesList)
   const manualMaestroList = useStore((s) => s.manualMaestroList)
   const deleteLearnedDiccionario = useStore((s) => s.deleteLearnedDiccionario)
   const deleteLearnedEstado = useStore((s) => s.deleteLearnedEstado)
   const deleteLearnedCiudad = useStore((s) => s.deleteLearnedCiudad)
+  const deleteLearnedAlias = useStore((s) => s.deleteLearnedAlias)
   const deleteManualMaestro = useStore((s) => s.deleteManualMaestro)
 
   const [sub, setSub] = useState<Sub>('diccionario')
@@ -38,6 +40,10 @@ export default function AprendizajeTab({ showToast }: { showToast: (msg: string)
   const ciudades = useMemo(
     () => learnedCiudadList.filter((c) => matches(q, c.ciudad, c.estadoStd)),
     [learnedCiudadList, q],
+  )
+  const aliases = useMemo(
+    () => learnedAliasesList.filter((a) => matches(q, a.distribuidor, a.codigoCliente, a.rifCanonico, a.razonSocial, a.estadoStd)),
+    [learnedAliasesList, q],
   )
   const maestro = useMemo(
     () => manualMaestroList.filter((m) => matches(q, m.rif, m.razonSocial, m.segmentoN3, m.macroN1, m.estadoHabitual)),
@@ -79,6 +85,9 @@ export default function AprendizajeTab({ showToast }: { showToast: (msg: string)
             </SubTab>
             <SubTab active={sub === 'ciudades'} onClick={() => cambiar('ciudades')}>
               Ciudades Aprendidas ({ciudades.length})
+            </SubTab>
+            <SubTab active={sub === 'aliases'} onClick={() => cambiar('aliases')}>
+              Homologación Códigos ({aliases.length})
             </SubTab>
             <SubTab active={sub === 'maestro'} onClick={() => cambiar('maestro')}>
               Maestro Manual ({maestro.length})
@@ -229,6 +238,65 @@ export default function AprendizajeTab({ showToast }: { showToast: (msg: string)
                           )}
                           className="p-1 rounded text-red hover:bg-red/10 transition-all hover:text-red-deep disabled:opacity-40"
                           title="Eliminar ciudad aprendida"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className={sub === 'aliases' ? '' : 'hidden'}>
+          <div className="max-h-[440px] overflow-y-auto border border-line rounded-lg">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-bg text-slate font-bold sticky top-0 uppercase border-b border-line">
+                <tr>
+                  <th className="px-4 py-2.5">Distribuidor</th>
+                  <th className="px-4 py-2.5">Código Cliente</th>
+                  <th className="px-4 py-2.5">RIF Canónico</th>
+                  <th className="px-4 py-2.5">Razón Social</th>
+                  <th className="px-4 py-2.5">Estado</th>
+                  <th className="px-4 py-2.5 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {aliases.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-slate">
+                      {vacio(
+                        'No hay códigos de clientes homologados',
+                        'Importa un archivo CSV de homologación o registra alias para distribuidores que usan códigos propios sin RIF.',
+                        learnedAliasesList.length > 0,
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  aliases.map((item) => (
+                    <tr key={`${item.distribuidor}::${item.codigoCliente}`} className="hover:bg-bg/40">
+                      <td className="px-4 py-2 font-semibold text-ink">{item.distribuidor}</td>
+                      <td className="px-4 py-2 font-mono font-bold text-navy">{item.codigoCliente}</td>
+                      <td className="px-4 py-2 font-mono font-bold text-navy">{item.rifCanonico}</td>
+                      <td className="px-4 py-2 text-ink font-semibold max-w-[180px] truncate">
+                        {item.razonSocial || <span className="italic text-slate-2">-</span>}
+                      </td>
+                      <td className="px-4 py-2 text-slate">
+                        {item.estadoStd || <span className="italic text-slate-2">-</span>}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <button
+                          type="button"
+                          disabled={deletingId === `${item.distribuidor}::${item.codigoCliente}`}
+                          onClick={() => void borrar(
+                            `${item.distribuidor}::${item.codigoCliente}`,
+                            () => deleteLearnedAlias(item.distribuidor, item.codigoCliente),
+                            `Alias "${item.codigoCliente}" de ${item.distribuidor} eliminado.`,
+                          )}
+                          className="p-1 rounded text-red hover:bg-red/10 transition-all hover:text-red-deep disabled:opacity-40"
+                          title="Eliminar alias"
                         >
                           <TrashIcon />
                         </button>

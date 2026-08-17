@@ -115,13 +115,13 @@ describe('resetLearned', () => {
       confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
     await useStore.getState().refreshLearned()
-    expect(useStore.getState().learned).toEqual({ diccionario: 1, estadoDiccionario: 0, ciudadEstado: 0, maestro: 1 })
+    expect(useStore.getState().learned).toEqual({ diccionario: 1, estadoDiccionario: 0, ciudadEstado: 0, maestro: 1, aliases: 0 })
 
     await useStore.getState().resetLearned()
 
     expect(await getLearnedDiccionario()).toEqual([])
     expect(await getManualMaestro()).toEqual([])
-    expect(useStore.getState().learned).toEqual({ diccionario: 0, estadoDiccionario: 0, ciudadEstado: 0, maestro: 0 })
+    expect(useStore.getState().learned).toEqual({ diccionario: 0, estadoDiccionario: 0, ciudadEstado: 0, maestro: 0, aliases: 0 })
   })
 })
 

@@ -4,8 +4,9 @@
 // fallback values and putters no-op, so the app keeps working purely on the embedded SEEDS.
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
-import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
+import { makeAliasKey } from '@/pipeline/alias'
 
 interface MetaRecord { key: string; value: unknown }
 
@@ -13,15 +14,14 @@ interface MotorDTTSchema extends DBSchema {
   diccionario: { key: string; value: DiccionarioEntry }
   estadoDiccionario: { key: string; value: EstadoDiccionarioEntry }
   ciudadEstado: { key: string; value: CiudadEstadoEntry }
+  aliases: { key: string; value: ClienteAliasEntry }
   maestro: { key: string; value: MaestroEntry }
   meta: { key: string; value: MetaRecord }
 }
 
 const DB_NAME = 'motor-dtt'
-// v2 added `estadoDiccionario`, v3 adds `ciudadEstado`. The upgrade callback below creates every
-// store it does not find, so a database at ANY earlier version gains the new stores and keeps all
-// of its data — see test/db-migration.test.ts.
-const DB_VERSION = 3
+// v2 added `estadoDiccionario`, v3 adds `ciudadEstado`, v4 adds `aliases`.
+const DB_VERSION = 4
 
 let dbPromise: Promise<IDBPDatabase<MotorDTTSchema> | null> | null = null
 
@@ -42,6 +42,7 @@ function openMotorDB(): Promise<IDBPDatabase<MotorDTTSchema> | null> {
           if (!db.objectStoreNames.contains('diccionario')) db.createObjectStore('diccionario', { keyPath: 'variante' })
           if (!db.objectStoreNames.contains('estadoDiccionario')) db.createObjectStore('estadoDiccionario', { keyPath: 'variante' })
           if (!db.objectStoreNames.contains('ciudadEstado')) db.createObjectStore('ciudadEstado', { keyPath: 'ciudad' })
+          if (!db.objectStoreNames.contains('aliases')) db.createObjectStore('aliases')
           if (!db.objectStoreNames.contains('maestro')) db.createObjectStore('maestro', { keyPath: 'rif' })
           if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' })
         },
@@ -111,6 +112,29 @@ export async function deleteLearnedCiudad(ciudad: string): Promise<void> {
   await db.delete('ciudadEstado', normalizeText(ciudad))
 }
 
+/** All learned client code aliases (beyond the embedded seeds). [] if IndexedDB is unavailable. */
+export async function getLearnedAliases(): Promise<ClienteAliasEntry[]> {
+  const db = await openMotorDB()
+  if (!db) return []
+  return db.getAll('aliases')
+}
+
+/** Persists a learned client alias, keyed by makeAliasKey(distribuidor, codigoCliente). */
+export async function putLearnedAlias(entry: ClienteAliasEntry): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  const key = makeAliasKey(entry.distribuidor, entry.codigoCliente)
+  await db.put('aliases', entry, key)
+}
+
+/** Deletes a specific client alias mapping. */
+export async function deleteLearnedAlias(distribuidor: string, codigoCliente: string): Promise<void> {
+  const db = await openMotorDB()
+  if (!db) return
+  const key = makeAliasKey(distribuidor, codigoCliente)
+  await db.delete('aliases', key)
+}
+
 /** All manually-classified maestro entries (metodo: 'MANUAL'). [] if IndexedDB is unavailable. */
 export async function getManualMaestro(): Promise<MaestroEntry[]> {
   const db = await openMotorDB()
@@ -140,7 +164,7 @@ export async function putMeta(key: string, value: unknown): Promise<void> {
   await db.put('meta', { key, value })
 }
 
-/** Wipes every learned store — segment diccionario, estado diccionario and manual maestro
+/** Wipes every learned store — segment diccionario, estado diccionario, ciudad, aliases and manual maestro
  *  (tests / reset). Leaves meta untouched. */
 export async function clearLearned(): Promise<void> {
   const db = await openMotorDB()
@@ -148,6 +172,7 @@ export async function clearLearned(): Promise<void> {
   await db.clear('diccionario')
   await db.clear('estadoDiccionario')
   await db.clear('ciudadEstado')
+  await db.clear('aliases')
   await db.clear('maestro')
 }
 

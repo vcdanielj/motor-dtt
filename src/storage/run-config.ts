@@ -3,15 +3,17 @@
 // foundation C2 (cola resolution) writes into and C3 (config import/export) reads from.
 import { normalizeText } from '@/ingest/normalize'
 import { SEEDS } from '@/seeds'
-import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry } from '@/contracts/config'
+import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
-import { getLearnedCiudades, getLearnedDiccionario, getLearnedEstados, getManualMaestro } from './db'
+import { getLearnedCiudades, getLearnedDiccionario, getLearnedEstados, getManualMaestro, getLearnedAliases } from './db'
+import { makeAliasKey } from '@/pipeline/alias'
 
 export interface RunConfig {
   diccionario: DiccionarioEntry[]              // SEEDS.diccionario ++ learned (learned wins)
   estadoDiccionario: EstadoDiccionarioEntry[]  // SEEDS.estadoDiccionario ++ learned (learned wins)
   ciudadEstado: Record<string, string>         // SEEDS.ciudadEstado ++ learned (learned wins)
   manualMaestro: MaestroEntry[]                // persisted manual classifications
+  aliases: ClienteAliasEntry[]                 // persisted client aliases
 }
 
 /** Learned entries win over seed entries sharing the same normalized variante; every other seed
@@ -45,20 +47,27 @@ export function mergeCiudadEstado(
   return merged
 }
 
-/** Reads the persisted learned dictionaries + manual maestro from IndexedDB and merges them over
- *  SEEDS — the config the next pipeline/export run should use. Falls back to SEEDS-only + no
- *  manual maestro when IndexedDB is empty or unavailable. */
+/** Learned alias mappings win over seeds sharing the same distribuidor + codigoCliente. */
+export function mergeAliases(seed: ClienteAliasEntry[] = [], learned: ClienteAliasEntry[] = []): ClienteAliasEntry[] {
+  const overridden = new Set(learned.map((a) => makeAliasKey(a.distribuidor, a.codigoCliente)))
+  return [...seed.filter((a) => !overridden.has(makeAliasKey(a.distribuidor, a.codigoCliente))), ...learned]
+}
+
+/** Reads the persisted learned dictionaries + manual maestro + aliases from IndexedDB and merges them over
+ *  SEEDS — the config the next pipeline/export run should use. */
 export async function loadRunConfig(): Promise<RunConfig> {
-  const [learned, learnedEstados, learnedCiudades, manualMaestro] = await Promise.all([
+  const [learned, learnedEstados, learnedCiudades, manualMaestro, learnedAliases] = await Promise.all([
     getLearnedDiccionario(),
     getLearnedEstados(),
     getLearnedCiudades(),
     getManualMaestro(),
+    getLearnedAliases(),
   ])
   return {
     diccionario: mergeDiccionario(SEEDS.diccionario, learned),
     estadoDiccionario: mergeEstadoDiccionario(SEEDS.estadoDiccionario, learnedEstados),
     ciudadEstado: mergeCiudadEstado(SEEDS.ciudadEstado, learnedCiudades),
     manualMaestro,
+    aliases: mergeAliases(SEEDS.aliases ?? [], learnedAliases),
   }
 }

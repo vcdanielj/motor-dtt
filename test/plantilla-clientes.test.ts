@@ -257,8 +257,8 @@ describe('exportUnclassifiedZip (store)', () => {
       const zip = await JSZip.loadAsync(await zipBlob!.arrayBuffer())
       const nombres = Object.keys(zip.files).sort()
       expect(nombres).toEqual([
-        'planilla_clientes_pendientes_DIST_NORTE.xlsx',
-        'planilla_clientes_pendientes_DIST_SUR.xlsx',
+        'Plantilla_Clientes_DIST_NORTE.xlsx',
+        'Plantilla_Clientes_DIST_SUR.xlsx',
       ])
 
       // Every emitted workbook must be readable by the importer — the round trip end to end.

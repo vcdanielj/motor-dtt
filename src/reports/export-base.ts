@@ -9,7 +9,7 @@ import { processRow, outputColumns } from '@/pipeline/process-row'
 import { resolveEstado, type EstadoContext } from '@/pipeline/estado'
 import { csvLine } from './csv'
 import { OUTPUT_COLUMNS, type SchemaMap } from '@/contracts/row'
-import { detectClienteCol, detectMesCol } from '@/ingest/schema-detect'
+import { detectClienteCol, detectMesCol, detectSucursalCol, detectCodigoClienteCol, detectDistCol } from '@/ingest/schema-detect'
 
 const OUTPUT_HEADER = [...OUTPUT_COLUMNS]
 
@@ -18,16 +18,22 @@ export function exportHeaderLine(headers: string[]): string {
   return csvLine([...headers, ...OUTPUT_HEADER])
 }
 
-/** Extra columns the maestro build reads (recency + client name), mirroring the pipeline branch. */
+/** Extra columns the maestro build reads (recency, client name, sucursal, etc.). */
 export interface ExportExtraCols {
   mesCol: string | null
   clienteCol: string | null
+  sucursalCol: string | null
+  codigoClienteCol: string | null
+  distCol: string | null
 }
 
 export function detectExportExtraCols(headers: string[]): ExportExtraCols {
   return {
     mesCol: detectMesCol(headers),
     clienteCol: detectClienteCol(headers),
+    sucursalCol: detectSucursalCol(headers),
+    codigoClienteCol: detectCodigoClienteCol(headers),
+    distCol: detectDistCol(headers),
   }
 }
 
@@ -46,6 +52,7 @@ export function observeExportRow(
   const estCrudo = (schema.estadoCrudo ? rec[schema.estadoCrudo] : '') ?? ''
   const rif = (schema.rif ? rec[schema.rif] : '') ?? ''
   const ciudad = (schema.ciudad ? rec[schema.ciudad] : '') ?? ''
+  const sucursal = cols.sucursalCol ? rec[cols.sucursalCol] : (schema.sucursal ? rec[schema.sucursal] : null)
 
   const segR = resolveSegmento({ rif: null, crudo: segCrudo }, segSeed)
   const estR = estSeed
@@ -61,6 +68,8 @@ export function observeExportRow(
       fechaOrden: cols.mesCol ? parseFechaOrden(rec[cols.mesCol]) : null,
       razonSocial: cols.clienteCol ? rec[cols.clienteCol] : null,
       estadoStd: estR.estadoStd,
+      sucursal: sucursal || null,
+      ciudad: ciudad || null,
     })
   } else if (estR.estadoStd) {
     builder.observe({
@@ -71,6 +80,8 @@ export function observeExportRow(
       fechaOrden: null,
       razonSocial: cols.clienteCol ? rec[cols.clienteCol] : null,
       estadoStd: estR.estadoStd,
+      sucursal: sucursal || null,
+      ciudad: ciudad || null,
     })
   }
 }

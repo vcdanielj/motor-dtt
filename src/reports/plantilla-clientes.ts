@@ -26,6 +26,23 @@ const HEINZ_SUAVE = 'FFFFF0F2'
 const CEBRA = 'FFFBF7F8'
 const BORDE = 'FFD3D3D3'
 
+/** Sanitizes a distributor's name to produce a clean, identifiable filename for the ZIP export. */
+export function sanitizeDistributorFilename(distribuidor: string | null | undefined, prefix = 'Plantilla_Clientes'): string {
+  if (!distribuidor || !distribuidor.trim() || distribuidor.trim().toUpperCase() === 'SIN_DISTRIBUIDOR') {
+    return `${prefix}_SIN_DISTRIBUIDOR.xlsx`
+  }
+  // Strip accents and clean non-alphanumeric chars
+  const clean = distribuidor
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+  const name = clean || 'DISTRIBUIDOR'
+  return `${prefix}_${name}.xlsx`
+}
+
 /** Human-readable summary of what this client is missing, shown to the distributor. */
 export function etiquetaFalta(row: Pick<ClientesSinClasificarRow, 'faltaSegmento' | 'faltaEstado'>): string {
   if (row.faltaSegmento && row.faltaEstado) return 'Segmento y Estado'
