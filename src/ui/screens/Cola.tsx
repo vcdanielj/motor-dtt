@@ -153,13 +153,23 @@ export default function Cola() {
           Las clasificaciones se guardan localmente y se aplican en la próxima corrida. Se guardan en este navegador
           (IndexedDB) — no se sincronizan a ningún servidor ni a otros equipos.
         </span>
-        <button
-          type="button"
-          onClick={() => setView('config')}
-          className="text-xs font-bold text-navy hover:underline ml-auto"
-        >
-          Ver reglas en Configuración →
-        </button>
+        <div className="flex items-center gap-3 ml-auto">
+          <button
+            type="button"
+            onClick={() => setView('homologacion')}
+            className="text-xs font-bold text-navy hover:underline"
+          >
+            Homologación de Códigos →
+          </button>
+          <span className="text-slate/40">|</span>
+          <button
+            type="button"
+            onClick={() => setView('config')}
+            className="text-xs font-bold text-navy hover:underline"
+          >
+            Ver reglas en Configuración →
+          </button>
+        </div>
       </div>
 
       {toast ? (

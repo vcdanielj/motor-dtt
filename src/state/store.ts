@@ -25,7 +25,7 @@ import {
 } from '@/reports/plantilla-clientes'
 import type { ProgressEvent, IngestSummary, PipelineRunResult } from '@/contracts/pipeline'
 
-export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'config' | 'manual'
+export type ViewKey = 'dashboard' | 'corrida' | 'distribuidores' | 'cola' | 'maestro' | 'homologacion' | 'config' | 'manual'
 
 interface IngestState {
   phase: 'idle' | 'running' | 'done' | 'error'

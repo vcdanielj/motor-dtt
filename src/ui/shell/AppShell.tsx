@@ -8,6 +8,7 @@ import Corrida from '@/ui/screens/Corrida'
 import Distribuidores from '@/ui/screens/Distribuidores'
 import Cola from '@/ui/screens/Cola'
 import Maestro from '@/ui/screens/Maestro'
+import Homologacion from '@/ui/screens/Homologacion'
 import Config from '@/ui/screens/Config'
 import Manual from '@/ui/screens/Manual'
 
@@ -17,6 +18,7 @@ const SCREENS = {
   distribuidores: Distribuidores,
   cola: Cola,
   maestro: Maestro,
+  homologacion: Homologacion,
   config: Config,
   manual: Manual,
 }

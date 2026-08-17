@@ -6,4 +6,6 @@ test('clicking nav switches active view', () => {
   render(<AppShell />)
   fireEvent.click(screen.getByTestId('nav-cola'))
   expect(useStore.getState().view).toBe('cola')
+  fireEvent.click(screen.getByTestId('nav-homologacion'))
+  expect(useStore.getState().view).toBe('homologacion')
 })

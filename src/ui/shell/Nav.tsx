@@ -6,6 +6,7 @@ const ITEMS: { key: ViewKey; label: string }[] = [
   { key: 'distribuidores', label: 'Distribuidores' },
   { key: 'cola', label: 'Cola de revisión' },
   { key: 'maestro', label: 'Maestro' },
+  { key: 'homologacion', label: 'Homologación' },
   { key: 'config', label: 'Configuración' },
 ]
 
