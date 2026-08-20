@@ -21,14 +21,15 @@ import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import { applyEstadoRecovery, applyMaestroRecovery, type UnresueltoTally } from '@/pipeline/recovery'
 import { processRow, type ResolvedRow } from '@/pipeline/process-row'
 import { buildAliasIndex, resolveAlias } from '@/pipeline/alias'
-import { pct1 } from '@/lib/num'
+import { guardTon, pct1 } from '@/lib/num'
 import {
   detectExportExtraCols,
   observeExportRow,
-  exportRowLine,
-  exportHeaderLine,
+  exportRowValues,
+  exportHeaderValues,
   type ExportExtraCols,
 } from '@/reports/export-base'
+import { XlsxBaseWriter } from '@/reports/xlsx-write'
 import type {
   ProgressEvent,
   IngestSummary,
@@ -47,6 +48,37 @@ import type { MaestroEntry } from '@/contracts/maestro'
 // Recency key stamped on manual classifications (from Config import or Cola resolution) so they
 // win rule D3 over any observed row from the actual file.
 const MANUAL_FECHA_ORDEN = Number.MAX_SAFE_INTEGER
+
+// The 24 official estados, normalized — the gate every alias-provided estado must pass before it
+// can resolve a row (an alias imported with a typo'd estado must never leak into estado_std).
+const ESTADO_CATALOGO = new Set(SEEDS.estados.map(normalizeText))
+
+/** The alias's estadoStd, canonicalized, or null when absent/not a catalog estado. */
+function estadoDeAlias(alias: ClienteAliasEntry | null): string | null {
+  if (!alias?.estadoStd) return null
+  const estado = normalizeText(alias.estadoStd)
+  return ESTADO_CATALOGO.has(estado) ? estado : null
+}
+
+/** Estado-por-RIF conocido ANTES de leer el archivo: el estado habitual de las clasificaciones
+ *  manuales persistidas y el "Estado Sugerido" de las homologaciones de código. Alimenta el paso
+ *  RIF de la cascada de estados en el export (pasada A) y complementa al maestro en la pasada B. */
+function estadoByRifSeed(cfg: ResolutionConfig): Map<string, string> {
+  const seedMap = new Map<string, string>()
+  for (const a of cfg.aliases) {
+    if (!a.activa || !a.estadoStd) continue
+    const estado = normalizeText(a.estadoStd)
+    const rifKey = normalizeRif(a.rifCanonico)
+    if (rifKey !== '' && ESTADO_CATALOGO.has(estado)) seedMap.set(rifKey, estado)
+  }
+  for (const m of cfg.manualMaestro) {
+    if (!m.estadoHabitual) continue
+    const rifKey = normalizeRif(m.rif)
+    const estado = normalizeText(m.estadoHabitual)
+    if (rifKey !== '' && ESTADO_CATALOGO.has(estado)) seedMap.set(rifKey, estado)
+  }
+  return seedMap
+}
 
 type WorkerMode = 'counting' | 'pipeline' | 'export'
 
@@ -71,6 +103,16 @@ function kindOf(name: string): FileKind | null {
   if (/\.xlsx?$/i.test(name)) return 'xlsx'
   return null
 }
+
+// XLSX files are ZIP containers (magic bytes 'PK'). A legacy binary .xls (BIFF) or a renamed file
+// is not — without this check JSZip failed with a cryptic "end of central directory" error.
+function esZip(buf: ArrayBuffer): boolean {
+  const b = new Uint8Array(buf, 0, Math.min(2, buf.byteLength))
+  return b.length === 2 && b[0] === 0x50 && b[1] === 0x4b
+}
+
+const MSG_XLS_VIEJO =
+  'El archivo no es un XLSX válido — probablemente es un .xls antiguo. Ábrelo en Excel y guárdalo como "Libro de Excel (.xlsx)", o expórtalo a CSV, y vuelve a cargarlo.'
 
 self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
   const file = ev.data?.file
@@ -299,11 +341,18 @@ async function runCounting(file: File) {
       if (!res.ok) badSchema = true
     } else {
       const buf = await file.arrayBuffer()
+      if (!esZip(buf)) return post({ type: 'error', code: 'UNSUPPORTED', message: MSG_XLS_VIEJO })
       const res = await streamXlsxWorkbook(
         buf,
         (hs, _, s) => {
-          if (!schema) onHeaders(hs, s)
-          else distCol = detectDistCol(hs) ?? distCol
+          if (!schema) {
+            onHeaders(hs, s)
+          } else {
+            // Later sheets can carry different headers — refresh the schema so their rows count
+            // clients against the right RIF column instead of sheet 1's.
+            distCol = detectDistCol(hs) ?? distCol
+            schema = s
+          }
         },
         (rec) => {
           onRow(rec)
@@ -399,14 +448,17 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     const estCrudo = (s.estadoCrudo ? rec[s.estadoCrudo] : '') ?? ''
     const rawRif = (s.rif ? rec[s.rif] : '') ?? ''
     const ciudad = (s.ciudad ? rec[s.ciudad] : '') ?? ''
-    const ton = tonCol ? parseNumeric(rec[tonCol]) : 0
+    // guardTon at the source: one corrupted cell (NaN or a '-3.69E+17'-style magnitude) must never
+    // poison tonTotal, the per-distributor metrics or the cola priorities downstream.
+    const ton = tonCol ? guardTon(parseNumeric(rec[tonCol])) : 0
     const distribuidor = (distCol ? rec[distCol] : '')?.trim() || 'SIN_DISTRIBUIDOR'
 
     // Alias resolution for distributor client codes lacking RIF
     let rif = rawRif
+    let alias: ClienteAliasEntry | null = null
     const codCli = codClienteCol ? rec[codClienteCol] : (s.codigoCliente ? rec[s.codigoCliente] : '')
     if (!normalizeRif(rif) && codCli) {
-      const alias = resolveAlias(distribuidor, codCli, aliasIndex)
+      alias = resolveAlias(distribuidor, codCli, aliasIndex)
       if (alias) {
         rif = alias.rifCanonico
       }
@@ -420,10 +472,21 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
       cached = processRow({ rif: null, segmentoCrudo: segCrudo, estadoCrudo: estCrudo, ciudad }, seg, est)
       if (rowCache.size < ROW_CACHE_MAX) rowCache.set(cacheKey, cached)
     }
-    const resolved: ResolvedRow = {
+    let resolved: ResolvedRow = {
       ...cached,
       valorOriginalSegmento: segCrudo,
       valorOriginalEstado: estCrudo,
+    }
+    // The alias's "Estado Sugerido" is an analyst-entered fact about the client — when the text
+    // cascade came up empty, it resolves the row right here (same rank as the maestro's RIF step).
+    const aliasEstado = estadoDeAlias(alias)
+    if (aliasEstado && resolved.estadoStd === null) {
+      resolved = {
+        ...resolved,
+        estadoStd: aliasEstado,
+        metodoEstado: 'RIF',
+        flagRegistro: resolved.flagRegistro === 'SIN_ESTADO' ? 'OK' : resolved.flagRegistro,
+      }
     }
     const flagRegistro = resolved.flagRegistro
 
@@ -434,7 +497,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     }
     distribuidoresVistos.add(distribuidor)
     if (segKey) crudoPresent++
-    tonTotal += Number.isFinite(ton) ? ton : 0
+    tonTotal += ton
     if (flagRegistro === 'SIN_CLASIFICAR') tonSinClasificar += ton
     segmento[(resolved.metodoSegmento ?? 'SIN_CLASIFICAR') as keyof MethodTally]++
     estado[(resolved.metodoEstado ?? 'SIN_ESTADO') as keyof EstadoTally]++
@@ -444,6 +507,9 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     cola.addCiudad(ciudad, resolved, ton)
 
     const rifKey = normalizeRif(rif)
+    // Client name: the file's cliente column, or — for alias-resolved rows — the razón social
+    // the analyst registered with the homologation.
+    const razonSocialRow = (clienteCol ? rec[clienteCol] : '') || alias?.razonSocial || ''
 
     // Maestro observation + unresolved-with-RIF tracking (M2).
     if (resolved.metodoSegmento === 'EXACTO' || resolved.metodoSegmento === 'FUZZY') {
@@ -453,7 +519,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
         macroN1: resolved.macroN1 ?? '',
         metodo: resolved.metodoSegmento,
         fechaOrden: mesCol ? parseFechaOrden(rec[mesCol]) : null,
-        razonSocial: clienteCol ? rec[clienteCol] : null,
+        razonSocial: razonSocialRow || null,
         estadoStd: resolved.estadoStd,
         sucursal: sucursalVal || null,
         ciudad: ciudad || null,
@@ -466,7 +532,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
           macroN1: '',
           metodo: null,
           fechaOrden: null,
-          razonSocial: clienteCol ? rec[clienteCol] : null,
+          razonSocial: razonSocialRow || null,
           estadoStd: resolved.estadoStd,
           sucursal: sucursalVal || null,
           ciudad: ciudad || null,
@@ -476,19 +542,18 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
 
     if (flagRegistro === 'SIN_CLASIFICAR') {
       if (rifKey !== '') {
-        const safeTon = Number.isFinite(ton) ? ton : 0
-        const razonSocial = (clienteCol ? rec[clienteCol] : '') || ''
+        const razonSocial = razonSocialRow
         const g = unresueltoPorRif.get(rifKey)
         if (g) {
           g.count++
-          g.ton += safeTon
+          g.ton += ton
           if (!g.razonSocial && razonSocial) {
             g.razonSocial = razonSocial
           }
         } else {
           unresueltoPorRif.set(rifKey, {
             count: 1,
-            ton: safeTon,
+            ton,
             rif,
             razonSocial,
             distribuidor,
@@ -511,8 +576,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
     // Per-client pending tracking: a client is pending while ANY of its rows still lacks the
     // segment or the state.
     if (rifKey !== '') {
-      const safeTon = Number.isFinite(ton) ? ton : 0
-      const razonSocial = (clienteCol ? rec[clienteCol] : '') || ''
+      const razonSocial = razonSocialRow
       let pendiente = clientesPendientes.get(rifKey)
       if (!pendiente) {
         pendiente = {
@@ -528,7 +592,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
         }
         clientesPendientes.set(rifKey, pendiente)
       }
-      pendiente.ton += safeTon
+      pendiente.ton += ton
       pendiente.count += 1
       if (!pendiente.razonSocial && razonSocial) pendiente.razonSocial = razonSocial
       if (resolved.segmentoN3) pendiente.segmentoActual = resolved.segmentoN3
@@ -566,6 +630,7 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
       if (!res.ok) badSchema = true
     } else {
       const buf = await file.arrayBuffer()
+      if (!esZip(buf)) return post({ type: 'error', code: 'UNSUPPORTED', message: MSG_XLS_VIEJO })
       const res = await streamXlsxWorkbook(
         buf,
         (hs, _, s) => {
@@ -668,16 +733,21 @@ async function runPipeline(file: File, cfg: ResolutionConfig) {
 
     const maestroEntries = [...maestro.values()].sort((a, b) => a.rif.localeCompare(b.rif))
 
-    const conflictoItems: ColaItem[] = conflictos.map((c) => ({
-      id: stableId('CONFLICTO_MAYOR', c.rif),
-      dominio: 'SEGMENTO',
-      tipo: 'CONFLICTO_MAYOR',
-      valorCrudo: c.rif,
-      registrosAfectados: c.registros,
-      tonAfectadas: 0,
-      sugerenciaFuzzy: null,
-      resolucion: null,
-    }))
+    // Biggest conflicts first — before this sort, map order decided which conflicts survived the
+    // 400-item cap, so a 2-row conflict could crowd out a 500-row one.
+    const conflictoItems: ColaItem[] = [...conflictos]
+      .sort((a, b) => b.registros - a.registros)
+      .map((c) => ({
+        id: stableId('CONFLICTO_MAYOR', c.rif),
+        dominio: 'SEGMENTO' as const,
+        tipo: 'CONFLICTO_MAYOR' as const,
+        valorCrudo: c.rif,
+        registrosAfectados: c.registros,
+        tonAfectadas: 0,
+        sugerenciaFuzzy: null,
+        detalle: [c.razonSocial, c.segmentos.join(' vs ')].filter(Boolean).join(' · ') || null,
+        resolucion: null,
+      }))
     const colaMerged = [...cola.build(150), ...conflictoItems].slice(0, 400)
 
     const clientesSinClasificar: ClientesSinClasificarRow[] = []
@@ -733,108 +803,128 @@ async function runExport(file: File, versionDiccionario: string, runId: string, 
   if (!kind) return post({ type: 'error', code: 'UNSUPPORTED', message: `Formato no soportado: ${file.name}` })
   post({ type: 'start', fileName: file.name, fileKind: kind, bytes: file.size })
 
-  const est = buildEstadoCtx(cfg)
+  // Homologación de códigos: the export applies the SAME alias rule as the pipeline pass, and the
+  // estado cascade's RIF step starts pre-seeded with what the analyst already registered (alias
+  // estados + manual maestro) so pass A's observations don't depend on the file alone.
+  const aliasIndex = buildAliasIndex(cfg.aliases)
+  const est = buildEstadoCtx(cfg, estadoByRifSeed(cfg))
 
   try {
+    // Load the workbook bytes ONCE — both passes below re-stream the same buffer instead of
+    // materializing the file twice (with an 800K-row XLSX that duplication alone could OOM the
+    // worker, which the UI only surfaced as "No se pudo exportar").
+    const xlsxBuf = kind === 'xlsx' ? await file.arrayBuffer() : null
+    if (xlsxBuf && !esZip(xlsxBuf)) return post({ type: 'error', code: 'UNSUPPORTED', message: MSG_XLS_VIEJO })
+
     // ── Pass A — build the full maestro ──
     const segSeed = buildSegmentoContext(cfg, new Map())
     const builder = new MaestroBuilder()
     seedManualMaestro(builder, cfg.manualMaestro)
     let schemaA: SchemaMap | null = null
-    let extraCols: ExportExtraCols = { mesCol: null, clienteCol: null, sucursalCol: null, codigoClienteCol: null, distCol: null }
-    const passA = await streamRecords(
+    let extraColsA: ExportExtraCols = { mesCol: null, clienteCol: null, sucursalCol: null, codigoClienteCol: null, distCol: null }
+    await streamRecords(
       file,
       kind,
+      xlsxBuf,
       (headers, s) => {
+        if (!schemaIsUsable(s)) return false // skip this sheet (csv: abort the file)
+        // Per-sheet schema: a multi-sheet workbook can name its columns differently on each
+        // sheet, and every row must be observed against ITS sheet's columns.
         schemaA = s
-        extraCols = detectExportExtraCols(headers)
-        return schemaIsUsable(schemaA)
+        extraColsA = detectExportExtraCols(headers)
+        return true
       },
-      (rec) => observeExportRow(builder, rec, schemaA!, extraCols, segSeed, est),
+      (rec) => observeExportRow(builder, rec, schemaA!, extraColsA, segSeed, est, aliasIndex),
     )
-    if (passA === 'bad-schema')
+    if (!schemaA)
       return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento o estado' })
     const { maestro } = builder.build()
 
     // ── Pass B — write with the full maestro applied ──
     const seg = buildSegmentoContext(cfg, maestro)
-    const estWithRif = buildEstadoCtx(cfg, estadoByRifFrom(maestro))
+    // The maestro's habitual estados (built from the file) refine the pre-seeded analyst estados.
+    const estadoRifB = estadoByRifSeed(cfg)
+    for (const [rifKey, estado] of estadoByRifFrom(maestro)) estadoRifB.set(rifKey, estado)
+    const estWithRif = buildEstadoCtx(cfg, estadoRifB)
 
     let schemaB: SchemaMap | null = null
-    let headers: string[] = []
+    let extraColsB: ExportExtraCols = { mesCol: null, clienteCol: null, sucursalCol: null, codigoClienteCol: null, distCol: null }
+    let baseHeaders: string[] = []
     let rows = 0
-    const parts: string[] = []
-    const passB = await streamRecords(
+    // The standardized base ships as a real XLSX. The writer streams the sheet XML in compressed
+    // chunks (CompressionStream) and parks the payload in Blobs the browser can page to disk —
+    // the same memory discipline as the previous chunked-CSV assembly — and rolls over to
+    // "Base 2" sheets if a file ever exceeds Excel's 1.048.576-row limit.
+    let xlsxWriter: XlsxBaseWriter | null = null
+    await streamRecords(
       file,
       kind,
-      (hs, s) => {
-        headers = hs
+      xlsxBuf,
+      (headers, s) => {
+        if (!schemaIsUsable(s)) return false
         schemaB = s
-        parts.push(exportHeaderLine(headers) + '\n')
-        return schemaIsUsable(schemaB)
+        extraColsB = detectExportExtraCols(headers)
+        if (!xlsxWriter) {
+          // The output workbook has ONE header row: the first usable sheet's columns. Rows from
+          // later sheets are projected onto it by header name; their sheet-specific extras are
+          // dropped, but their classification always uses their own sheet's schema (schemaB).
+          baseHeaders = headers
+          xlsxWriter = new XlsxBaseWriter(exportHeaderValues(baseHeaders))
+        }
+        return true
       },
       (rec) => {
-        parts.push(exportRowLine(rec, headers, schemaB!, seg, estWithRif, versionDiccionario, runId) + '\n')
+        xlsxWriter!.addRow(
+          exportRowValues(rec, baseHeaders, schemaB!, seg, estWithRif, versionDiccionario, runId, extraColsB, aliasIndex),
+        )
         rows++
         if (rows % 5000 === 0) post({ type: 'progress', rows, distributors: 0, clientes: 0, bytesRead: file.size })
       },
     )
-    if (passB === 'bad-schema')
-      return post({ type: 'error', code: 'BAD_SCHEMA', message: 'Encabezados no reconocidos: falta RIF, segmento o estado' })
-    if (rows === 0 || !schemaB) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados válidos' })
+    if (rows === 0 || !schemaB || !xlsxWriter) return post({ type: 'error', code: 'EMPTY', message: 'Archivo vacío o sin encabezados válidos' })
 
     post({ type: 'progress', rows, distributors: 0, clientes: 0, bytesRead: file.size })
-    const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' })
+    const blob = await (xlsxWriter as XlsxBaseWriter).finish()
     post({ type: 'export', blob, rows })
   } catch (err) {
     return post({ type: 'error', code: 'PARSE_ERROR', message: (err as Error).message || 'Error al generar el archivo' })
   }
 }
 
-// Streams records across all valid sheets of CSV / XLSX.
+// Streams records across all valid sheets of CSV / XLSX. `onSheet` fires once per sheet (CSV:
+// once per file) and decides whether that sheet's rows flow into `onRow`; `xlsxBuf` lets the
+// caller load the workbook bytes once and reuse them across passes.
 async function streamRecords(
   file: File,
   kind: FileKind,
-  onFirstHeaders: (headers: string[], schema: SchemaMap) => boolean,
+  xlsxBuf: ArrayBuffer | null,
+  onSheet: (headers: string[], schema: SchemaMap) => boolean,
   onRow: (rec: Record<string, string>) => void,
-): Promise<'ok' | 'bad-schema'> {
-  let started = false
-  let badSchema = false
+): Promise<void> {
   if (kind === 'csv') {
-    const res = await streamCsv(
+    let accepted = false
+    await streamCsv(
       file,
       (hs, s) => {
-        if (!started) {
-          started = true
-          if (!onFirstHeaders(hs, s)) {
-            badSchema = true
-            return false
-          }
-        }
+        accepted = onSheet(hs, s)
+        if (!accepted) return false // aborts the CSV parse
       },
       (rec) => {
-        if (!badSchema) onRow(rec)
+        if (accepted) onRow(rec)
       },
     )
-    if (!res.ok) badSchema = true
   } else {
-    const buf = await file.arrayBuffer()
-    const res = await streamXlsxWorkbook(
+    const buf = xlsxBuf ?? (await file.arrayBuffer())
+    let sheetAccepted = false
+    await streamXlsxWorkbook(
       buf,
       (hs, _, s) => {
-        if (!started) {
-          started = true
-          if (!onFirstHeaders(hs, s)) {
-            badSchema = true
-            return false
-          }
-        }
+        sheetAccepted = onSheet(hs, s)
+        return sheetAccepted // false → xlsx-stream abandons the rest of this sheet
       },
       (rec) => {
-        if (!badSchema) onRow(rec)
+        if (sheetAccepted) onRow(rec)
       },
     )
-    if (res.validSheets === 0) badSchema = true
   }
-  return badSchema ? 'bad-schema' : 'ok'
 }

@@ -47,3 +47,50 @@ describe('Homologacion Screen', () => {
     })
   })
 })
+
+describe('Homologacion Screen — validación de RIF', () => {
+  it('rechaza un RIF claramente inválido con un aviso y no guarda el alias', async () => {
+    await useStore.getState().resetLearned()
+    render(<Homologacion />)
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Registrar Alias' }))
+    fireEvent.change(screen.getByPlaceholderText('Ej: ALIMENTOS CAMPESINO o SUPLIMOS'), {
+      target: { value: 'CAMPESINO' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Ej: BAR-00236 o CLI-109'), {
+      target: { value: 'BAR-00236' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Ej: J-402116012'), {
+      target: { value: 'no aplica' },
+    })
+    fireEvent.click(screen.getByText('Guardar Homologación'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/no parece un RIF válido/)
+    })
+    // The modal stays open and nothing was persisted.
+    expect(screen.getByText('Registrar Homologación de Código')).toBeInTheDocument()
+    expect(useStore.getState().learnedAliasesList).toHaveLength(0)
+  })
+
+  it('normaliza el RIF al guardar (J-402.116.012 → J402116012)', async () => {
+    await useStore.getState().resetLearned()
+    render(<Homologacion />)
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Registrar Alias' }))
+    fireEvent.change(screen.getByPlaceholderText('Ej: ALIMENTOS CAMPESINO o SUPLIMOS'), {
+      target: { value: 'CAMPESINO' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Ej: BAR-00236 o CLI-109'), {
+      target: { value: 'BAR-00300' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Ej: J-402116012'), {
+      target: { value: 'j-402.116.012' },
+    })
+    fireEvent.click(screen.getByText('Guardar Homologación'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('cell', { name: 'J402116012' })).toBeInTheDocument()
+    })
+  })
+})

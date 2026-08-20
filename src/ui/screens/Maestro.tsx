@@ -24,6 +24,7 @@ const dash = (value: string | null) => value ?? '—'
 
 export default function Maestro() {
   const maestro = useStore((s) => s.maestro)
+  const maestroTotal = useStore((s) => s.runResult?.maestroTotal ?? 0)
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {
@@ -93,7 +94,14 @@ export default function Maestro() {
         placeholder="Buscar por RIF o nombre de cliente…"
         className="mt-4 w-full max-w-[420px] rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink outline-none focus:border-navy focus:ring-2 focus:ring-navy/20"
       />
-      <span className="ml-3 text-[11.5px] text-slate">{filtered.length} de {maestro.length} clientes</span>
+      <span className="ml-3 text-[11.5px] text-slate">
+        {filtered.length} de {maestro.length} clientes
+        {maestroTotal > maestro.length ? (
+          <>
+            {' '}· la corrida clasificó <strong>{maestroTotal.toLocaleString('es-VE')}</strong> en total — aquí se listan los primeros {maestro.length}; el maestro completo va en la base estandarizada exportada
+          </>
+        ) : null}
+      </span>
 
       <Card className="mt-3 overflow-x-auto">
         {filtered.length === 0 ? (

@@ -1,8 +1,19 @@
 import { useState, useMemo, type ChangeEvent } from 'react'
 import { useStore } from '@/state/store'
+import { normalizeRif } from '@/ingest/normalize'
+import { makeAliasKey } from '@/pipeline/alias'
 import type { ClienteAliasEntry } from '@/contracts/config'
 import Card from '@/ui/components/Card'
 import Badge from '@/ui/components/Badge'
+
+// Sanity check for the canonical RIF: a Venezuelan RIF/cédula normalizes to a type letter plus
+// 6-11 digits ('J402116012', 'V12345678'); a bare numeric ID is also accepted because some
+// distributors report them without the letter. Anything else ('N/A', a client name pasted in the
+// wrong field…) would poison every future corrida for that code.
+const RIF_VALIDO = /^(?:[VEJPGC]\d{6,11}|\d{6,12})$/
+
+// Render cap: alias tables can hold thousands of rows; rendering them all at once freezes the tab.
+const PAGINA = 250
 
 export default function Homologacion() {
   const learnedAliasesList = useStore((s) => s.learnedAliasesList)
@@ -17,6 +28,7 @@ export default function Homologacion() {
   const [showModal, setShowModal] = useState(false)
   const [busyImport, setBusyImport] = useState(false)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(PAGINA)
 
   // Form state for creating a new alias
   const [formData, setFormData] = useState({
@@ -45,6 +57,12 @@ export default function Homologacion() {
     )
   }, [learnedAliasesList, query])
 
+  const visibles = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount])
+  const setQueryAndResetPage = (q: string) => {
+    setQuery(q)
+    setVisibleCount(PAGINA)
+  }
+
   const distribuidoresUnicos = useMemo(() => {
     return new Set(learnedAliasesList.map((a) => a.distribuidor)).size
   }, [learnedAliasesList])
@@ -56,19 +74,32 @@ export default function Homologacion() {
       return
     }
 
+    const rifNormalizado = normalizeRif(formData.rifCanonico)
+    if (!RIF_VALIDO.test(rifNormalizado)) {
+      showToastMsg(`"${formData.rifCanonico.trim()}" no parece un RIF válido — usa el formato J-12345678-9 (o V/E/G/P/C).`)
+      return
+    }
+
     const entry: ClienteAliasEntry = {
       distribuidor: formData.distribuidor.trim(),
       codigoCliente: formData.codigoCliente.trim(),
-      rifCanonico: formData.rifCanonico.trim(),
+      rifCanonico: rifNormalizado,
       razonSocial: formData.razonSocial.trim() || undefined,
       estadoStd: formData.estadoStd.trim() || undefined,
       activa: true,
     }
 
+    const yaExistia = learnedAliasesList.some(
+      (a) => makeAliasKey(a.distribuidor, a.codigoCliente) === makeAliasKey(entry.distribuidor, entry.codigoCliente),
+    )
     await putLearnedAlias(entry)
     setShowModal(false)
     setFormData({ distribuidor: '', codigoCliente: '', rifCanonico: '', razonSocial: '', estadoStd: '' })
-    showToastMsg(`Alias para "${entry.codigoCliente}" de ${entry.distribuidor} guardado con éxito.`)
+    showToastMsg(
+      yaExistia
+        ? `Alias existente para "${entry.codigoCliente}" de ${entry.distribuidor} actualizado — aplica en la próxima corrida.`
+        : `Alias para "${entry.codigoCliente}" de ${entry.distribuidor} guardado — aplica en la próxima corrida.`,
+    )
   }
 
   const handleDelete = async (distribuidor: string, codigoCliente: string) => {
@@ -108,6 +139,7 @@ export default function Homologacion() {
           </div>
           <p className="mt-1.5 text-xs text-slate max-w-[820px] leading-relaxed">
             Permite asociar códigos internos de distribuidores que no reportan RIF (como el código <em>BAR-00236</em> de Campesino) a su RIF canónico y razón social oficial, evitando filas no identificadas.
+            El motor cruza por <strong>distribuidor + código</strong>; si el código es distintivo (letras y números, como <em>BAR-00236</em>) y único en toda la base, también aplica aunque el nombre del distribuidor no coincida exactamente. Los cambios aplican en la próxima corrida.
           </p>
         </div>
 
@@ -169,8 +201,8 @@ export default function Homologacion() {
 
         <Card className="p-4 border-l-4 border-l-gold">
           <div className="text-[11px] font-bold text-slate uppercase tracking-wider">Efecto en Corrida</div>
-          <div className="mt-1 text-xs font-bold text-navy">Recuperación 100% Automática</div>
-          <div className="mt-1 text-[11px] text-slate">Asigna RIF canónico en streaming</div>
+          <div className="mt-1 text-xs font-bold text-navy">Corrida y export estandarizado</div>
+          <div className="mt-1 text-[11px] text-slate">Asigna RIF canónico, razón social y estado en streaming</div>
         </Card>
       </div>
 
@@ -178,12 +210,12 @@ export default function Homologacion() {
       <div className="flex items-center justify-between gap-4 mb-3">
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => setQueryAndResetPage(e.target.value)}
           placeholder="Buscar por distribuidor, código interno, RIF o cliente…"
           className="w-full max-w-[460px] rounded-md border border-line bg-panel px-3 py-2 text-xs text-ink outline-none focus:border-navy focus:ring-2 focus:ring-navy/20"
         />
         <span className="text-xs text-slate">
-          Mostrando <strong>{filtered.length}</strong> de {learnedAliasesList.length} registros
+          Mostrando <strong>{visibles.length}</strong> de {filtered.length} coincidencias ({learnedAliasesList.length} registros)
         </span>
       </div>
 
@@ -217,7 +249,7 @@ export default function Homologacion() {
                 </td>
               </tr>
             ) : (
-              filtered.map((item) => {
+              visibles.map((item) => {
                 const key = `${item.distribuidor}::${item.codigoCliente}`
                 return (
                   <tr key={key} className="hover:bg-bg/40 transition-colors">
@@ -251,6 +283,17 @@ export default function Homologacion() {
             )}
           </tbody>
         </table>
+        {filtered.length > visibles.length ? (
+          <div className="border-t border-line px-4 py-3 text-center">
+            <button
+              type="button"
+              onClick={() => setVisibleCount((n) => n + PAGINA)}
+              className="rounded-md border border-line bg-panel px-4 py-1.5 text-xs font-bold text-navy hover:bg-bg transition-all"
+            >
+              Mostrar {Math.min(PAGINA, filtered.length - visibles.length)} más ({filtered.length - visibles.length} restantes)
+            </button>
+          </div>
+        ) : null}
       </Card>
 
       {/* Modal for creating new alias */}
@@ -279,6 +322,9 @@ export default function Homologacion() {
                   onChange={(e) => setFormData({ ...formData, distribuidor: e.target.value })}
                   className="w-full rounded border border-line px-3 py-2 text-ink outline-none focus:border-navy"
                 />
+                <p className="mt-1 text-[10px] text-slate leading-relaxed">
+                  Escríbelo tal como aparece en la columna «Distribuidor» del archivo para el cruce exacto.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

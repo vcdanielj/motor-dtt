@@ -197,7 +197,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   // On-demand export (Sprint 2 · X1): re-streams the run's file through the worker's
   // export mode, which builds the FULL maestro itself (two-pass, uncapped), then saves the
-  // resulting CSV Blob. No-ops quietly if there's no completed run yet to reuse.
+  // resulting XLSX Blob. No-ops quietly if there's no completed run yet to reuse.
   exportBase: async () => {
     const { lastFile, runResult, runId, versionDiccionario } = get()
     if (!lastFile || !runResult || !runId) return
@@ -217,7 +217,11 @@ export const useStore = create<StoreState>((set, get) => ({
         runConfig,
         get().thresholds,
       )
-      const outcome = await adapters.saveBlob(blob, `base_estandarizada_${runId}.csv`)
+      const outcome = await adapters.saveBlob(
+        blob,
+        `base_estandarizada_${runId}.xlsx`,
+        [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
+      )
       // A user-cancelled save picker is not an error — return to idle quietly (brief §5).
       set({ exportState: outcome === 'cancelled' ? 'idle' : 'done', exportRows: rows })
     } catch (err) {
@@ -261,8 +265,10 @@ export const useStore = create<StoreState>((set, get) => ({
     await dbDeleteLearnedAlias(distribuidor, codigoCliente)
     await get().refreshLearned()
   },
+  // Normalizes the canonical RIF on write ('j-402.116.012' → 'J402116012') so the table, the CSV
+  // export and the runtime index all show/compare the same form regardless of how it was typed.
   putLearnedAlias: async (entry) => {
-    await putLearnedAlias(entry)
+    await putLearnedAlias({ ...entry, rifCanonico: normalizeRif(entry.rifCanonico) })
     await get().refreshLearned()
   },
   deleteManualMaestro: async (rif) => {
@@ -431,7 +437,10 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().refreshLearned()
     return { added, skipped }
   },
-  // Imports client code aliases CSV: distribuidor, codigo_cliente, rif_canonico, razon_social, estado_std
+  // Imports client code aliases CSV: distribuidor, codigo_cliente, rif_canonico, razon_social, estado_std.
+  // The estado column is validated against the 24-estado catalog (accents/case-insensitively) —
+  // an unrecognizable estado drops ONLY the estado, never the whole alias, because a bad estado
+  // stored here would otherwise flow straight into estado_std on every future corrida.
   importAliasesCsv: async (file) => {
     const text = await file.text()
     const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true })
@@ -446,12 +455,14 @@ export const useStore = create<StoreState>((set, get) => ({
     let added = 0
     let skipped = 0
     if (distKey && codKey && rifKey) {
+      const estados = get().seeds.estados
       for (const row of parsed.data) {
         const distribuidor = (row[distKey] ?? '').trim()
         const codigoCliente = (row[codKey] ?? '').trim()
         const rifCanonico = normalizeRif(row[rifKey] ?? '')
         const razonSocial = razonKey ? (row[razonKey] ?? '').trim() : undefined
-        const estadoStd = estadoKey ? (row[estadoKey] ?? '').trim() : undefined
+        const estadoCrudo = estadoKey ? normalizeText(row[estadoKey] ?? '') : ''
+        const estadoStd = estadoCrudo ? estados.find((e) => normalizeText(e) === estadoCrudo) : undefined
         if (!distribuidor || !codigoCliente || !rifCanonico) {
           skipped++
           continue
@@ -461,7 +472,7 @@ export const useStore = create<StoreState>((set, get) => ({
           codigoCliente,
           rifCanonico,
           razonSocial: razonSocial || undefined,
-          estadoStd: estadoStd || undefined,
+          estadoStd,
           activa: true,
         })
         added++

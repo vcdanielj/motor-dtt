@@ -7,15 +7,23 @@ import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
 import { resolveSegmento, type SegmentoContext } from '@/pipeline/segmento'
 import { processRow, outputColumns } from '@/pipeline/process-row'
 import { resolveEstado, type EstadoContext } from '@/pipeline/estado'
+import { resolveAlias, type AliasIndex } from '@/pipeline/alias'
+import { normalizeRif } from '@/ingest/normalize'
 import { csvLine } from './csv'
 import { OUTPUT_COLUMNS, type SchemaMap } from '@/contracts/row'
+import type { ClienteAliasEntry } from '@/contracts/config'
 import { detectClienteCol, detectMesCol, detectSucursalCol, detectCodigoClienteCol, detectDistCol } from '@/ingest/schema-detect'
 
 const OUTPUT_HEADER = [...OUTPUT_COLUMNS]
 
-/** Header line: the original headers (verbatim) + the 11 PRD §7.3 output column names. */
+/** Header values: the original headers (verbatim) + the 11 PRD §7.3 output column names. */
+export function exportHeaderValues(headers: string[]): string[] {
+  return [...headers, ...OUTPUT_HEADER]
+}
+
+/** Header line: `exportHeaderValues` serialized as one CSV line. */
 export function exportHeaderLine(headers: string[]): string {
-  return csvLine([...headers, ...OUTPUT_HEADER])
+  return csvLine(exportHeaderValues(headers))
 }
 
 /** Extra columns the maestro build reads (recency, client name, sucursal, etc.). */
@@ -37,6 +45,25 @@ export function detectExportExtraCols(headers: string[]): ExportExtraCols {
   }
 }
 
+/** The effective RIF of a row: the raw RIF cell, or — when it is empty — the canonical RIF its
+ *  distributor client code homologates to. This is the SAME rule the pipeline pass applies, so
+ *  the exported file can never lose a homologation the corrida already counted. Returns the alias
+ *  entry too so callers can reuse its razón social. */
+export function rifConAlias(
+  rec: Record<string, string>,
+  schema: SchemaMap,
+  cols: ExportExtraCols,
+  aliasIndex?: AliasIndex,
+): { rif: string; alias: ClienteAliasEntry | null } {
+  const raw = (schema.rif ? rec[schema.rif] : '') ?? ''
+  if (!aliasIndex || normalizeRif(raw) !== '') return { rif: raw, alias: null }
+  const codigo = (cols.codigoClienteCol ? rec[cols.codigoClienteCol] : (schema.codigoCliente ? rec[schema.codigoCliente] : '')) ?? ''
+  if (!codigo) return { rif: raw, alias: null }
+  const distribuidor = (cols.distCol ? rec[cols.distCol] : '') ?? ''
+  const alias = resolveAlias(distribuidor, codigo, aliasIndex)
+  return alias ? { rif: alias.rifCanonico, alias } : { rif: raw, alias: null }
+}
+
 /** Pass A: observe an EXACTO/FUZZY row into the maestro builder. Segment is resolved with seeds
  *  only (maestro empty) — identical to the pipeline branch's observation, so the export's maestro
  *  matches the run's. Non-classifying rows contribute nothing. */
@@ -47,12 +74,14 @@ export function observeExportRow(
   cols: ExportExtraCols,
   segSeed: SegmentoContext,
   estSeed?: EstadoContext,
+  aliasIndex?: AliasIndex,
 ): void {
   const segCrudo = (schema.segmentoCrudo ? rec[schema.segmentoCrudo] : '') ?? ''
   const estCrudo = (schema.estadoCrudo ? rec[schema.estadoCrudo] : '') ?? ''
-  const rif = (schema.rif ? rec[schema.rif] : '') ?? ''
+  const { rif, alias } = rifConAlias(rec, schema, cols, aliasIndex)
   const ciudad = (schema.ciudad ? rec[schema.ciudad] : '') ?? ''
   const sucursal = cols.sucursalCol ? rec[cols.sucursalCol] : (schema.sucursal ? rec[schema.sucursal] : null)
+  const razonSocial = (cols.clienteCol ? rec[cols.clienteCol] : '') || alias?.razonSocial || null
 
   const segR = resolveSegmento({ rif: null, crudo: segCrudo }, segSeed)
   const estR = estSeed
@@ -66,7 +95,7 @@ export function observeExportRow(
       macroN1: segR.macroN1 ?? '',
       metodo: segR.metodo,
       fechaOrden: cols.mesCol ? parseFechaOrden(rec[cols.mesCol]) : null,
-      razonSocial: cols.clienteCol ? rec[cols.clienteCol] : null,
+      razonSocial,
       estadoStd: estR.estadoStd,
       sucursal: sucursal || null,
       ciudad: ciudad || null,
@@ -78,7 +107,7 @@ export function observeExportRow(
       macroN1: '',
       metodo: null,
       fechaOrden: null,
-      razonSocial: cols.clienteCol ? rec[cols.clienteCol] : null,
+      razonSocial,
       estadoStd: estR.estadoStd,
       sucursal: sucursal || null,
       ciudad: ciudad || null,
@@ -87,8 +116,33 @@ export function observeExportRow(
 }
 
 /** Pass B: resolve one row WITH the full maestro applied (so a RIF-recovered row comes out
- *  MAESTRO) and serialize the original columns (in header order) + the 11 output columns as a
- *  single CSV line. */
+ *  MAESTRO) and return the original columns (in header order) + the 11 output columns as plain
+ *  cell values — the XLSX writer consumes these directly. */
+export function exportRowValues(
+  rec: Record<string, string>,
+  headers: string[],
+  schema: SchemaMap,
+  seg: SegmentoContext,
+  est: EstadoContext,
+  versionDiccionario: string,
+  runId: string,
+  cols?: ExportExtraCols,
+  aliasIndex?: AliasIndex,
+): string[] {
+  const segCrudo = (schema.segmentoCrudo ? rec[schema.segmentoCrudo] : '') ?? ''
+  const estCrudo = (schema.estadoCrudo ? rec[schema.estadoCrudo] : '') ?? ''
+  const { rif } = cols
+    ? rifConAlias(rec, schema, cols, aliasIndex)
+    : { rif: (schema.rif ? rec[schema.rif] : '') ?? '' }
+  const ciudad = (schema.ciudad ? rec[schema.ciudad] : '') ?? ''
+  const resolved = processRow({ rif, segmentoCrudo: segCrudo, estadoCrudo: estCrudo, ciudad }, seg, est)
+  const outCols = outputColumns(resolved, versionDiccionario, runId)
+  const rowValues = headers.map((h) => rec[h] ?? '')
+  const outValues = OUTPUT_HEADER.map((c) => outCols[c])
+  return [...rowValues, ...outValues]
+}
+
+/** `exportRowValues` serialized as one CSV line (kept for the CSV-based tests/back-compat). */
 export function exportRowLine(
   rec: Record<string, string>,
   headers: string[],
@@ -97,14 +151,8 @@ export function exportRowLine(
   est: EstadoContext,
   versionDiccionario: string,
   runId: string,
+  cols?: ExportExtraCols,
+  aliasIndex?: AliasIndex,
 ): string {
-  const segCrudo = (schema.segmentoCrudo ? rec[schema.segmentoCrudo] : '') ?? ''
-  const estCrudo = (schema.estadoCrudo ? rec[schema.estadoCrudo] : '') ?? ''
-  const rif = (schema.rif ? rec[schema.rif] : '') ?? ''
-  const ciudad = (schema.ciudad ? rec[schema.ciudad] : '') ?? ''
-  const resolved = processRow({ rif, segmentoCrudo: segCrudo, estadoCrudo: estCrudo, ciudad }, seg, est)
-  const outCols = outputColumns(resolved, versionDiccionario, runId)
-  const rowValues = headers.map((h) => rec[h] ?? '')
-  const outValues = OUTPUT_HEADER.map((c) => outCols[c])
-  return csvLine([...rowValues, ...outValues])
+  return csvLine(exportRowValues(rec, headers, schema, seg, est, versionDiccionario, runId, cols, aliasIndex))
 }

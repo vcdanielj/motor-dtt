@@ -10,7 +10,7 @@ const VARIANTE_ITEM: ColaItem = {
   valorCrudo: 'CANAL RARO XYZ',
   registrosAfectados: 10,
   tonAfectadas: 1.2,
-  sugerenciaFuzzy: { valor: 'MINI MARKET', score: 87 },
+  sugerenciaFuzzy: { valor: 'SMI - Mini Market', score: 87 },
   resolucion: null,
 }
 
@@ -38,7 +38,7 @@ test('renders cola items with tipo badge and afectados', () => {
 
 test('shows a quick suggestion button only when sugerenciaFuzzy is present', () => {
   render(<Cola />)
-  expect(screen.getByText(/Usar sugerencia: MINI MARKET \(87\)/)).toBeInTheDocument()
+  expect(screen.getByText(/Usar sugerencia: SMI - Mini Market \(87\)/)).toBeInTheDocument()
   expect(screen.getByText(/sin sugerencia fuzzy/)).toBeInTheDocument()
 })
 
@@ -55,8 +55,8 @@ test('renders a segment <select> grouped by macro and a save button, disabled un
   const selects = screen.getAllByRole('combobox')
   expect(selects.length).toBeGreaterThan(0)
   const options = within(selects[0]).getAllByRole('option')
-  // 37 N3 + the placeholder option
-  expect(options.length).toBeGreaterThan(37)
+  // 14 official N3 + the placeholder option
+  expect(options.length).toBeGreaterThan(14)
 
   const saveButtons = screen.getAllByRole('button', { name: /Guardar clasificación/i })
   expect(saveButtons[0]).toBeDisabled()
@@ -64,7 +64,7 @@ test('renders a segment <select> grouped by macro and a save button, disabled un
 
 test('clicking "Usar sugerencia" pre-selects that N3 and enables the save button', () => {
   render(<Cola />)
-  fireEvent.click(screen.getByText(/Usar sugerencia: MINI MARKET \(87\)/))
+  fireEvent.click(screen.getByText(/Usar sugerencia: SMI - Mini Market \(87\)/))
 
   const saveButtons = screen.getAllByRole('button', { name: /Guardar clasificación/i })
   expect(saveButtons[0]).toBeEnabled()
@@ -75,7 +75,7 @@ test('clicking "Guardar clasificación" calls resolveColaItem with the item id a
   useStore.setState({ resolveColaItem: async (id, segmentoN3) => { calledWith = [id, segmentoN3] } })
 
   render(<Cola />)
-  fireEvent.click(screen.getByText(/Usar sugerencia: MINI MARKET \(87\)/))
+  fireEvent.click(screen.getByText(/Usar sugerencia: SMI - Mini Market \(87\)/))
   const saveButtons = screen.getAllByRole('button', { name: /Guardar clasificación/i })
 
   // Flush the microtasks handleSave awaits (resolveColaItem's promise + its .then/.finally
@@ -88,17 +88,17 @@ test('clicking "Guardar clasificación" calls resolveColaItem with the item id a
     await Promise.resolve()
   })
 
-  expect(calledWith).toEqual(['test-variante', 'MINI MARKET'])
-  expect(screen.getByRole('status')).toHaveTextContent(/CANAL RARO XYZ.*MINI MARKET.*guardado/)
+  expect(calledWith).toEqual(['test-variante', 'SMI - Mini Market'])
+  expect(screen.getByRole('status')).toHaveTextContent(/CANAL RARO XYZ.*SMI - Mini Market.*guardado/)
 })
 
 test('an already-resolved item renders a resolved badge with the chosen segment, and hides the picker', () => {
   useStore.setState({
-    cola: [{ ...VARIANTE_ITEM, resolucion: 'MINI MARKET' }, CONFLICTO_ITEM],
+    cola: [{ ...VARIANTE_ITEM, resolucion: 'SMI - Mini Market' }, CONFLICTO_ITEM],
   })
   render(<Cola />)
 
-  expect(screen.getByText(/Resuelto → MINI MARKET/)).toBeInTheDocument()
+  expect(screen.getByText(/Resuelto → SMI - Mini Market/)).toBeInTheDocument()
   // The resolved item's picker/save button is gone; only the still-pending CONFLICTO item's remain.
   expect(screen.getAllByRole('combobox')).toHaveLength(1)
   expect(screen.getAllByRole('button', { name: /Guardar clasificación/i })).toHaveLength(1)
@@ -129,7 +129,7 @@ test('an ESTADO item offers the 24 estados, not the segment catalog', () => {
   const options = within(select).getAllByRole('option').map((o) => o.textContent)
   expect(options).toContain('ZULIA')
   expect(options).toContain('NUEVA ESPARTA')
-  expect(options).not.toContain('BODEGA')
+  expect(options).not.toContain('Bodegas')
   expect(screen.getByText(/Usar sugerencia: NUEVA ESPARTA \(88\)/)).toBeInTheDocument()
 })
 

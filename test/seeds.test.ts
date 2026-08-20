@@ -3,15 +3,34 @@ import { normalizeText } from '@/ingest/normalize'
 import { SEEDS, SEGMENTOS } from '@/seeds'
 
 describe('seeds', () => {
-  it('37 N3 segments seeded', () => {
-    expect(SEEDS.segmentos).toHaveLength(37)
+  it('exactly the 14 official CEC segments, verbatim', () => {
+    expect(SEEDS.segmentos.map((s) => s.n3)).toEqual([
+      'Abastos',
+      'Bodegas',
+      'Bodegones',
+      'Carniceria, charcuteria y Frigorifico',
+      'Farmacias',
+      'Horeca',
+      'Kioscos',
+      'Licorerias y Bares',
+      'Mayoristas',
+      'Otros',
+      'Panaderias y Pastelerias',
+      'SMI',
+      'SMI - Mini Market',
+      'Tiendas de conveniencias',
+    ])
   })
 
-  it('every segment macro is non-empty and there are exactly 8, including TIENDAS ESPECIALIZADAS', () => {
+  it('every segment macro is non-empty and Otros is a segment per se', () => {
     const macros = new Set(SEEDS.segmentos.map((s) => s.macroN1))
     expect([...macros].every((m) => m.length > 0)).toBe(true)
-    expect(macros.size).toBe(8)
-    expect(macros.has('TIENDAS ESPECIALIZADAS')).toBe(true)
+    expect(SEEDS.segmentos.some((s) => s.n3 === 'Otros')).toBe(true)
+  })
+
+  it('no two segments share a codigo and no two N3 collide after normalization', () => {
+    expect(new Set(SEEDS.segmentos.map((s) => s.codigo)).size).toBe(14)
+    expect(new Set(SEEDS.segmentos.map((s) => normalizeText(s.n3))).size).toBe(14)
   })
 
   it('every segment has a non-empty codigo', () => {

@@ -65,10 +65,10 @@ describe('loadRunConfig', () => {
 
   test('merges persisted learned diccionario + manual maestro from IndexedDB', async () => {
     await putLearnedDiccionario({
-      variante: 'CANAL APRENDIDO', segmentoN3: 'N3_APRENDIDO', macroN1: 'MACRO_APRENDIDO', codigo: 'C-LEARNED', metodo: 'EXACTO', activa: true,
+      variante: 'CANAL APRENDIDO', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL', codigo: 'DTT-02', metodo: 'EXACTO', activa: true,
     })
     await putManualMaestro({
-      rif: 'J-999', razonSocial: 'Cliente Manual', segmentoN3: 'BODEGA', macroN1: 'TRADE TRADICIONAL (UTT)',
+      rif: 'J-999', razonSocial: 'Cliente Manual', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL',
       metodo: 'MANUAL', confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
 
@@ -76,5 +76,29 @@ describe('loadRunConfig', () => {
     expect(cfg.diccionario.length).toBe(SEEDS.diccionario.length + 1)
     expect(cfg.manualMaestro).toHaveLength(1)
     expect(cfg.manualMaestro[0].razonSocial).toBe('Cliente Manual')
+  })
+
+  test('legacy-catalog learned entries are migrated to the official 14 segments on read', async () => {
+    // Taught while the old 37-N3 catalog was live: must come back as official names, never leak.
+    await putLearnedDiccionario({
+      variante: 'CANAL LEGADO', segmentoN3: 'MINI MARKET', macroN1: 'SUPERMERCADOS INDEPENDIENTES', codigo: 'SI-05', metodo: 'EXACTO', activa: true,
+    })
+    await putLearnedDiccionario({
+      variante: 'CANAL ROTO', segmentoN3: 'N3_INEXISTENTE', macroN1: 'M', codigo: 'C', metodo: 'EXACTO', activa: true,
+    })
+    await putManualMaestro({
+      rif: 'J-888', razonSocial: 'Cliente Legado', segmentoN3: 'FARMACIA CADENA', macroN1: 'FARMACIAS MODERNAS',
+      metodo: 'MANUAL', confianza: 'N3', estadoHabitual: 'ZULIA', fechaClasificacion: null, reglaCanonica: 'MANUAL',
+    })
+
+    const cfg = await loadRunConfig()
+    const legado = cfg.diccionario.find((e) => e.variante === 'CANAL LEGADO')
+    expect(legado?.segmentoN3).toBe('SMI - Mini Market')
+    expect(legado?.codigo).toBe('DTT-13')
+    // An unrecognizable segment is dropped, not passed through.
+    expect(cfg.diccionario.find((e) => e.variante === 'CANAL ROTO')).toBeUndefined()
+    const manual = cfg.manualMaestro.find((m) => m.rif === 'J888')
+    expect(manual?.segmentoN3).toBe('Farmacias')
+    expect(manual?.estadoHabitual).toBe('ZULIA')
   })
 })

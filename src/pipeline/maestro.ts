@@ -1,4 +1,5 @@
 import { normalizeRif } from '@/ingest/normalize'
+import { esSegmentoOtros } from '@/seeds/segmentos'
 import type { MetodoSegmento } from '@/contracts/row'
 import type { MaestroEntry, ClienteSucursal } from '@/contracts/maestro'
 
@@ -17,6 +18,7 @@ export interface Observation {
 /** A cross-macro conflict: this RIF was observed under more than one macro-canal — CONFLICTO_MAYOR. */
 export interface Conflicto {
   rif: string                      // raw rif (first seen)
+  razonSocial: string | null       // client name (first seen), so the analyst knows WHO this is
   macros: string[]                 // the distinct macro-canales in conflict
   segmentos: string[]              // the distinct N3 observed
   registros: number                // total observations for this rif
@@ -115,7 +117,15 @@ export class MaestroBuilder {
     const conflictos: Conflicto[] = []
 
     for (const [key, agg] of this.rifs) {
-      const segEntries = [...agg.segmentos.entries()]
+      let segEntries = [...agg.segmentos.entries()]
+
+      // 'Otros' es el comodín del catálogo: cuando el mismo cliente también fue observado con un
+      // segmento específico, las observaciones 'Otros' no compiten por el canónico ni cuentan
+      // para el conflicto cross-macro (un abasto que a veces llega como 'OTROS' sigue siendo
+      // Abastos — exactamente el ruido que no debe llegar a la cola). Una clasificación MANUAL
+      // en 'Otros' sí se respeta: es una decisión humana, no ruido del archivo.
+      const especificos = segEntries.filter(([n3, s]) => s.hasManual || !esSegmentoOtros(n3))
+      if (especificos.length > 0) segEntries = especificos
 
       const sucursalesList: ClienteSucursal[] = [...agg.sucursales.values()]
         .map((s) => ({
@@ -156,6 +166,7 @@ export class MaestroBuilder {
       if (!hasManual && macros.length > 1) {
         conflictos.push({
           rif: agg.rawRif,
+          razonSocial: agg.razonSocial,
           macros: macros.sort(),
           segmentos: segEntries.map(([n3]) => n3).sort(),
           registros: agg.registros,

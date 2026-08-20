@@ -27,7 +27,7 @@ describe('processRow — happy path (segment EXACTO + estado EXACTO)', () => {
       seg,
       est,
     )
-    expect(result.segmentoN3).toBe('BODEGA')
+    expect(result.segmentoN3).toBe('Bodegas')
     expect(result.metodoSegmento).toBe('EXACTO')
     expect(result.estadoStd).toBe('ZULIA')
     expect(result.metodoEstado).toBe('EXACTO')
@@ -62,7 +62,7 @@ describe('processRow — SIN_ESTADO when segment resolves but estado does not', 
       est,
     )
     expect(result.flagRegistro).toBe('SIN_ESTADO')
-    expect(result.segmentoN3).toBe('BODEGA')
+    expect(result.segmentoN3).toBe('Bodegas')
     expect(result.estadoStd).toBeNull()
   })
 })
@@ -97,7 +97,7 @@ describe('outputColumns', () => {
     }
     expect(cols.version_diccionario).toBe('v1.2')
     expect(cols.run_id).toBe('run-abc')
-    expect(cols.segmento_n3_std).toBe('BODEGA')
+    expect(cols.segmento_n3_std).toBe('Bodegas')
     expect(cols.estado_std).toBe('ZULIA')
     expect(cols.flag_registro).toBe('OK')
     expect(cols.valor_original_segmento).toBe('Bodegas')

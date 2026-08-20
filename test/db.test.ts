@@ -10,11 +10,11 @@ import {
   clearLearned,
 } from '@/storage/db'
 
-const ENTRY_A = { variante: 'Nuevo Canal', segmentoN3: 'X1', macroN1: 'M1', codigo: 'C1', metodo: 'EXACTO' as const, activa: true }
-const ENTRY_B = { variante: 'nuevo   canal', segmentoN3: 'X2', macroN1: 'M2', codigo: 'C2', metodo: 'EXACTO' as const, activa: true }
+const ENTRY_A = { variante: 'Nuevo Canal', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL', codigo: 'DTT-02', metodo: 'EXACTO' as const, activa: true }
+const ENTRY_B = { variante: 'nuevo   canal', segmentoN3: 'Kioscos', macroN1: 'TRADE TRADICIONAL', codigo: 'DTT-07', metodo: 'EXACTO' as const, activa: true }
 
 const MAESTRO_A = {
-  rif: 'J-500.522.657', razonSocial: 'Cliente A', segmentoN3: 'BODEGA', macroN1: 'TRADE TRADICIONAL (UTT)',
+  rif: 'J-500.522.657', razonSocial: 'Cliente A', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL',
   metodo: 'MANUAL' as const, confianza: 'N3' as const, estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL' as const,
 }
 const MAESTRO_B = { ...MAESTRO_A, rif: 'j500522657', razonSocial: 'Cliente B' }
@@ -24,7 +24,7 @@ describe('storage/db — diccionario store', () => {
     await putLearnedDiccionario(ENTRY_A)
     const all = await getLearnedDiccionario()
     expect(all).toHaveLength(1)
-    expect(all[0]).toMatchObject({ segmentoN3: 'X1', variante: 'NUEVO CANAL' })
+    expect(all[0]).toMatchObject({ segmentoN3: 'Bodegas', variante: 'NUEVO CANAL' })
   })
 
   test('two casings of the same variante collapse into one entry (normalized key)', async () => {
@@ -32,7 +32,7 @@ describe('storage/db — diccionario store', () => {
     await putLearnedDiccionario(ENTRY_B) // same normalized variante, different casing/spacing
     const all = await getLearnedDiccionario()
     expect(all).toHaveLength(1)
-    expect(all[0].segmentoN3).toBe('X2') // second put wins
+    expect(all[0].segmentoN3).toBe('Kioscos') // second put wins
   })
 })
 

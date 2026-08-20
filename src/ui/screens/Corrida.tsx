@@ -13,6 +13,7 @@ export default function Corrida() {
   const ingest = useStore((s) => s.ingest)
   const runResult = useStore((s) => s.runResult)
   const exportState = useStore((s) => s.exportState)
+  const exportError = useStore((s) => s.exportError)
   const exportBase = useStore((s) => s.exportBase)
   const exportUnclassifiedTemplate = useStore((s) => s.exportUnclassifiedTemplate)
   const exportUnclassifiedZip = useStore((s) => s.exportUnclassifiedZip)
@@ -153,7 +154,9 @@ export default function Corrida() {
                 <span className="text-xs font-semibold text-green">Descarga lista</span>
               )}
               {exportState === 'error' && (
-                <span className="text-xs font-semibold text-red">No se pudo exportar</span>
+                <span className="text-xs font-semibold text-red">
+                  No se pudo exportar{exportError ? `: ${exportError}` : ''} — intenta de nuevo; si persiste, cierra otras pestañas para liberar memoria.
+                </span>
               )}
             </div>
 

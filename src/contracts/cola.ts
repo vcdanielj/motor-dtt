@@ -33,5 +33,8 @@ export interface ColaItem {
   /** Fuzzy hit inside the suggestion band. `valor` is a segmentoN3 for SEGMENTO items and a
    *  canonical estado for ESTADO items — the dominio says which. */
   sugerenciaFuzzy: { valor: string; score: number } | null
+  /** Extra human context. For CONFLICTO_MAYOR: the client's razón social and the segments in
+   *  dispute — without it the analyst only sees a bare RIF and cannot decide anything. */
+  detalle?: string | null
   resolucion: string | null
 }

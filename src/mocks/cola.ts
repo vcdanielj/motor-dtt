@@ -10,7 +10,7 @@ export const MOCK_COLA: ColaItem[] = [
     valorCrudo: 'SUPER. MINIMARTS',
     registrosAfectados: 214,
     tonAfectadas: 12.6,
-    sugerenciaFuzzy: { valor: 'MINI MARKET', score: 87 },
+    sugerenciaFuzzy: { valor: 'SMI - Mini Market', score: 87 },
     resolucion: null,
   },
   {
@@ -40,7 +40,7 @@ export const MOCK_COLA: ColaItem[] = [
     valorCrudo: 'PANADERIA-PASTELERIA',
     registrosAfectados: 58,
     tonAfectadas: 2.1,
-    sugerenciaFuzzy: { valor: 'PANADERIA', score: 82 },
+    sugerenciaFuzzy: { valor: 'Panaderias y Pastelerias', score: 82 },
     resolucion: null,
   },
   {

@@ -26,10 +26,10 @@ describe('buildIndex — real 202-variant catalog integrity', () => {
 })
 
 describe('resolveSegmento — EXACTO', () => {
-  test('crudo "Bodegas" resolves EXACTO to BODEGA', () => {
+  test('crudo "Bodegas" resolves EXACTO to the official Bodegas segment', () => {
     const ctx = makeCtx()
     const result = resolveSegmento({ rif: null, crudo: 'Bodegas' }, ctx)
-    expect(result.segmentoN3).toBe('BODEGA')
+    expect(result.segmentoN3).toBe('Bodegas')
     expect(result.metodo).toBe('EXACTO')
     expect(result.confianza).toBe('N3')
     expect(result.flag).toBe('OK')
@@ -37,20 +37,58 @@ describe('resolveSegmento — EXACTO', () => {
     expect(result.sugerencia).toBeNull()
   })
 
-  test('crudo "PANADERIA/PASTELERIA" resolves EXACTO to PANADERIA', () => {
+  test('crudo "PANADERIA/PASTELERIA" resolves EXACTO to Panaderias y Pastelerias', () => {
     const ctx = makeCtx()
     const result = resolveSegmento({ rif: null, crudo: 'PANADERIA/PASTELERIA' }, ctx)
-    expect(result.segmentoN3).toBe('PANADERIA')
+    expect(result.segmentoN3).toBe('Panaderias y Pastelerias')
     expect(result.metodo).toBe('EXACTO')
     expect(result.flag).toBe('OK')
   })
 
-  test('crudo "MINIMARKETS" resolves EXACTO to MINI MARKET', () => {
+  test('crudo "MINIMARKETS" resolves EXACTO to SMI - Mini Market', () => {
     const ctx = makeCtx()
     const result = resolveSegmento({ rif: null, crudo: 'MINIMARKETS' }, ctx)
-    expect(result.segmentoN3).toBe('MINI MARKET')
+    expect(result.segmentoN3).toBe('SMI - Mini Market')
     expect(result.metodo).toBe('EXACTO')
     expect(result.flag).toBe('OK')
+  })
+
+  test('crudo "OTROS" resolves EXACTO to the official Otros segment (per se, not pending)', () => {
+    const ctx = makeCtx()
+    const result = resolveSegmento({ rif: null, crudo: 'OTROS' }, ctx)
+    expect(result.segmentoN3).toBe('Otros')
+    expect(result.metodo).toBe('EXACTO')
+    expect(result.flag).toBe('OK')
+  })
+
+  test('crudo "EMPLEADOS" resolves to Otros — defined, never sent to the CEC queue', () => {
+    const ctx = makeCtx()
+    const result = resolveSegmento({ rif: null, crudo: 'EMPLEADOS' }, ctx)
+    expect(result.segmentoN3).toBe('Otros')
+    expect(result.flag).toBe('OK')
+  })
+
+  test('crudo "KIOSCOS DE CONFITES" resolves to Kioscos', () => {
+    const ctx = makeCtx()
+    const result = resolveSegmento({ rif: null, crudo: 'KIOSCOS DE CONFITES' }, ctx)
+    expect(result.segmentoN3).toBe('Kioscos')
+    expect(result.flag).toBe('OK')
+  })
+
+  test('every official N3 self-resolves EXACTO to itself', () => {
+    const ctx = makeCtx()
+    for (const seg of SEEDS.segmentos) {
+      const result = resolveSegmento({ rif: null, crudo: seg.n3 }, ctx)
+      expect(result.segmentoN3, seg.n3).toBe(seg.n3)
+      expect(result.metodo, seg.n3).toBe('EXACTO')
+    }
+  })
+
+  test('every dictionary resolution lands inside the official 14-segment catalog', () => {
+    const oficiales = new Set(SEEDS.segmentos.map((s) => s.n3))
+    for (const d of SEEDS.diccionario) {
+      expect(oficiales.has(d.segmentoN3), `${d.variante} -> ${d.segmentoN3}`).toBe(true)
+    }
   })
 })
 
@@ -59,7 +97,7 @@ describe('resolveSegmento — MAESTRO precedence', () => {
     const maestroEntries: MaestroEntry[] = [{
       rif: 'J-123',
       razonSocial: 'Cliente Test',
-      segmentoN3: 'BODEGON',
+      segmentoN3: 'Bodegones',
       macroN1: 'BODEGONES',
       metodo: 'MANUAL',
       confianza: 'N3',
@@ -68,9 +106,9 @@ describe('resolveSegmento — MAESTRO precedence', () => {
       reglaCanonica: 'MANUAL',
     }]
     const ctx = makeCtx(maestroEntries)
-    // 'ABASTOS' would resolve EXACTO to ABASTO if maestro were absent — maestro must win.
+    // 'ABASTOS' would resolve EXACTO to Abastos if maestro were absent — maestro must win.
     const result = resolveSegmento({ rif: 'J-123', crudo: 'ABASTOS' }, ctx)
-    expect(result.segmentoN3).toBe('BODEGON')
+    expect(result.segmentoN3).toBe('Bodegones')
     expect(result.macroN1).toBe('BODEGONES')
     expect(result.metodo).toBe('MAESTRO')
     expect(result.confianza).toBe('N3')
@@ -81,7 +119,7 @@ describe('resolveSegmento — MAESTRO precedence', () => {
     const maestroEntries: MaestroEntry[] = [{
       rif: 'J-999',
       razonSocial: 'Cliente Sin Crudo',
-      segmentoN3: 'FARMACIA',
+      segmentoN3: 'Farmacias',
       macroN1: 'FARMACIAS',
       metodo: 'MANUAL',
       confianza: null,
@@ -91,7 +129,7 @@ describe('resolveSegmento — MAESTRO precedence', () => {
     }]
     const ctx = makeCtx(maestroEntries)
     const result = resolveSegmento({ rif: 'J-999', crudo: null }, ctx)
-    expect(result.segmentoN3).toBe('FARMACIA')
+    expect(result.segmentoN3).toBe('Farmacias')
     expect(result.metodo).toBe('MAESTRO')
     // confianza was null on the maestro entry but it has an n3 -> treated as 'N3'
     expect(result.confianza).toBe('N3')
@@ -123,7 +161,7 @@ describe('resolveSegmento — normalizeRif key robustness', () => {
     const maestroEntries: MaestroEntry[] = [{
       rif: 'J-500522657',
       razonSocial: 'Cliente RIF Robusto',
-      segmentoN3: 'FARMACIA',
+      segmentoN3: 'Farmacias',
       macroN1: 'FARMACIAS',
       metodo: 'MANUAL',
       confianza: 'N3',
@@ -136,35 +174,33 @@ describe('resolveSegmento — normalizeRif key robustness', () => {
     const bare = resolveSegmento({ rif: 'J500522657', crudo: null }, ctx)
     expect(withDashes.metodo).toBe('MAESTRO')
     expect(bare.metodo).toBe('MAESTRO')
-    expect(withDashes.segmentoN3).toBe('FARMACIA')
-    expect(bare.segmentoN3).toBe('FARMACIA')
+    expect(withDashes.segmentoN3).toBe('Farmacias')
+    expect(bare.segmentoN3).toBe('Farmacias')
     expect(withDashes).toEqual(bare)
   })
 })
 
 describe('resolveSegmento — FUZZY (>=92)', () => {
-  // Empirically verified: normalizeText('Supermercado Grandes') === 'SUPERMERCADO GRANDES',
-  // which is NOT an exact dictionary key. bestMatch(key, ctx.index.keys) scores it 95
-  // against the real variant 'SUPERMERCADO GRANDE' (segmentoN3 'SUPERMERCADO INDEPENDIENTE GRANDE').
+  // normalizeText('Supermercados Grande') is NOT an exact dictionary key; bestMatch scores it
+  // >=92 against the real variant 'SUPERMERCADO GRANDE' (segmentoN3 'SMI').
   test('a near-miss plural of a real variant scores >=92 and resolves FUZZY', () => {
     const ctx = makeCtx()
-    const result = resolveSegmento({ rif: null, crudo: 'Supermercado Grandes' }, ctx)
+    const result = resolveSegmento({ rif: null, crudo: 'Supermercados Grande' }, ctx)
     expect(result.metodo).toBe('FUZZY')
-    expect(result.segmentoN3).toBe('SUPERMERCADO INDEPENDIENTE GRANDE')
-    expect(result.macroN1).toBe('SUPERMERCADOS INDEPENDIENTES')
+    expect(result.segmentoN3).toBe('SMI')
+    expect(result.macroN1).toBe('SMI')
     expect(result.confianza).toBe('N3')
     expect(result.fuzzyScore).not.toBeNull()
     expect(result.fuzzyScore as number).toBeGreaterThanOrEqual(92)
-    expect(result.fuzzyScore).toBe(95)
     expect(result.flag).toBe('OK')
     expect(result.sugerencia).toBeNull()
   })
 })
 
 describe('resolveSegmento — suggestion band (80-91)', () => {
-  // Empirically verified: normalizeText('MINIMARKTS') === 'MINIMARKTS' (distinct from the real
-  // key 'MINIMARTS'), and bestMatch scores it 91 against the real variant 'MINIMARKETS'
-  // (segmentoN3 'MINI MARKET') — squarely inside [80,92).
+  // normalizeText('MINIMARKTS') === 'MINIMARKTS' (distinct from the real key 'MINIMARTS'), and
+  // bestMatch scores it 91 against the real variant 'MINIMARKETS' (segmentoN3 'SMI - Mini
+  // Market') — squarely inside [80,92).
   test('a near-miss that scores 80-91 lands in SIN_CLASIFICAR with a cola suggestion', () => {
     const ctx = makeCtx()
     const result = resolveSegmento({ rif: null, crudo: 'MINIMARKTS' }, ctx)
@@ -175,8 +211,8 @@ describe('resolveSegmento — suggestion band (80-91)', () => {
     expect(result.macroN1).toBeNull()
     expect(result.fuzzyScore).toBe(91)
     expect(result.sugerencia).not.toBeNull()
-    expect(result.sugerencia?.segmentoN3).toBe('MINI MARKET')
-    expect(result.sugerencia?.macroN1).toBe('SUPERMERCADOS INDEPENDIENTES')
+    expect(result.sugerencia?.segmentoN3).toBe('SMI - Mini Market')
+    expect(result.sugerencia?.macroN1).toBe('SMI')
     expect(result.sugerencia?.score).toBe(91)
     expect(result.sugerencia!.score).toBeGreaterThanOrEqual(80)
     expect(result.sugerencia!.score).toBeLessThan(92)

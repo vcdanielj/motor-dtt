@@ -6,8 +6,8 @@ export const MOCK_MAESTRO: MaestroEntry[] = [
   {
     rif: 'J-00123456-7',
     razonSocial: 'BODEGA EL PROGRESO C.A.',
-    segmentoN3: 'BODEGA',
-    macroN1: 'TRADE TRADICIONAL (UTT)',
+    segmentoN3: 'Bodegas',
+    macroN1: 'TRADE TRADICIONAL',
     metodo: 'MAESTRO',
     confianza: 'N3',
     estadoHabitual: 'MIRANDA',
@@ -17,8 +17,8 @@ export const MOCK_MAESTRO: MaestroEntry[] = [
   {
     rif: 'J-30987654-1',
     razonSocial: 'AUTOMERCADO LA CENTRAL',
-    segmentoN3: 'AUTOMERCADO',
-    macroN1: 'SUPERMERCADOS INDEPENDIENTES',
+    segmentoN3: 'SMI',
+    macroN1: 'SMI',
     metodo: 'FUZZY',
     confianza: 'N3',
     estadoHabitual: 'CARABOBO',
@@ -28,7 +28,7 @@ export const MOCK_MAESTRO: MaestroEntry[] = [
   {
     rif: 'V-12345678-9',
     razonSocial: null,
-    segmentoN3: 'MAYORISTA CON FUERZA DE VENTA',
+    segmentoN3: 'Mayoristas',
     macroN1: 'MAYORISTAS',
     metodo: 'MANUAL',
     confianza: 'MACRO',

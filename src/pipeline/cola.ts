@@ -87,6 +87,9 @@ export function createColaAccumulator(): ColaAccumulator {
       const key = normalizeText(crudo)
       if (key === '') return // empty crudo needs the maestro, not the cola
       if (SEGMENTO_BASURA.has(key)) return // an Excel error is not a segment variant
+      // Digit-only cells ('1', '3', '9', '4 / 5') are codes leaked from some upstream export —
+      // nothing an analyst could map. Same treatment as the basura set.
+      if (/^[\d\s/.,-]+$/.test(key)) return
 
       if (resolved.sugerenciaSegmento) {
         add('VARIANTE_NUEVA', key, ton, {

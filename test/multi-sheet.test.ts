@@ -121,3 +121,57 @@ describe('XLSX Multi-Sheet Ingestion Logic', () => {
     expect(rowsIngested[1].RIF).toBe('J987654321')
   })
 })
+
+describe('XLSX Multi-Sheet — robustez (hojas gigantes sin encabezado, hojas rechazadas)', () => {
+  function makeBuffer(sheets: Record<string, unknown[][]>): ArrayBuffer {
+    const wb = XLSX.utils.book_new()
+    for (const [sheetName, aoa] of Object.entries(sheets)) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), sheetName)
+    }
+    return XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+  }
+
+  test('una hoja grande SIN encabezado reconocible se abandona (no cuelga ni acumula filas)', async () => {
+    // 500 filas de texto libre: antes esto acumulaba TODAS las filas en memoria buscando un
+    // encabezado que nunca llega — con un libro real de cientos de miles de filas, congelaba
+    // el worker (el "se queda pegado ahí" reportado con el H2).
+    const bigNoise: unknown[][] = []
+    for (let i = 0; i < 500; i++) bigNoise.push([`nota ${i}`, `texto libre ${i}`])
+    const dataSheet = [
+      ['MES', 'DISTRIBUIDOR', 'CLIENTE', 'RIF', 'Canal', 'Estado', 'TON'],
+      ['10/2025', 'DIST A', 'CLIENTE 1', 'J111', 'ABASTO', 'ZULIA', '1.0'],
+    ]
+
+    const buf = makeBuffer({ Notas: bigNoise, Datos: dataSheet })
+    const rows: Record<string, string>[] = []
+    const res = await streamXlsxWorkbook(buf, () => {}, (rec) => rows.push(rec))
+
+    expect(res.validSheets).toBe(1)
+    expect(res.totalRows).toBe(1)
+    expect(rows[0].RIF).toBe('J111')
+  })
+
+  test('las filas de una hoja rechazada por el callback NO llegan a onRow ni se mezclan con la siguiente', async () => {
+    const sheetA = [
+      ['MES', 'DISTRIBUIDOR', 'CLIENTE', 'RIF', 'Canal', 'Estado', 'TON'],
+      ['10/2025', 'DIST A', 'RECHAZADO', 'J-REJECT', 'ABASTO', 'ZULIA', '1.0'],
+    ]
+    const sheetB = [
+      ['MES', 'DISTRIBUIDOR', 'CLIENTE', 'RIF', 'Canal', 'Estado', 'TON'],
+      ['11/2025', 'DIST B', 'ACEPTADO', 'J-OK', 'BODEGA', 'LARA', '2.0'],
+    ]
+    const buf = makeBuffer({ Rechazada: sheetA, Aceptada: sheetB })
+
+    const rows: { rec: Record<string, string>; sheet: string }[] = []
+    const res = await streamXlsxWorkbook(
+      buf,
+      (_, sheetName) => sheetName !== 'Rechazada',
+      (rec, sheetName) => rows.push({ rec, sheet: sheetName }),
+    )
+
+    expect(res.totalRows).toBe(1)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].sheet).toBe('Aceptada')
+    expect(rows[0].rec.RIF).toBe('J-OK')
+  })
+})

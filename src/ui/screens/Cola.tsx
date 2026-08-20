@@ -43,7 +43,7 @@ const DOMINIO_LABEL: Record<ColaDominio, string> = {
   ESTADO: 'Estado',
 }
 
-// Groups the 37 N3 by macroN1, preserving first-seen order, for the <optgroup> select below.
+// Groups the official N3 catalog by macroN1, preserving first-seen order, for the <optgroup> select below.
 function groupByMacro(segmentos: SegmentoSeed[]): Array<{ macro: string; items: SegmentoSeed[] }> {
   const order: string[] = []
   const byMacro = new Map<string, SegmentoSeed[]>()
@@ -205,6 +205,9 @@ export default function Cola() {
                 </span>
                 <span className="font-mono text-xs font-semibold text-ink">{fmt1.format(item.tonAfectadas)} TON</span>
               </div>
+              {item.detalle ? (
+                <div className="mt-1.5 text-xs text-slate">{item.detalle}</div>
+              ) : null}
 
               {isResolved ? (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded bg-green/10 px-3 py-2 text-xs font-semibold text-green">

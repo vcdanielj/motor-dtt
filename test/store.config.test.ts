@@ -108,10 +108,10 @@ describe('importDiccionarioCsv', () => {
 describe('resetLearned', () => {
   test('empties both the learned diccionario and manual maestro stores', async () => {
     await putLearnedDiccionario({
-      variante: 'X', segmentoN3: 'N3', macroN1: 'M', codigo: 'C', metodo: 'EXACTO', activa: true,
+      variante: 'X', segmentoN3: 'Otros', macroN1: 'OTROS', codigo: 'DTT-10', metodo: 'EXACTO', activa: true,
     })
     await putManualMaestro({
-      rif: 'J-1', razonSocial: null, segmentoN3: 'N3', macroN1: 'M', metodo: 'MANUAL',
+      rif: 'J-1', razonSocial: null, segmentoN3: 'Otros', macroN1: 'OTROS', metodo: 'MANUAL',
       confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
     await useStore.getState().refreshLearned()
@@ -128,7 +128,7 @@ describe('resetLearned', () => {
 describe('export actions', () => {
   test('exportLearnedDiccionario builds a CSV with the expected header + a learned row, then saveBlob', async () => {
     await putLearnedDiccionario({
-      variante: 'CANAL X', segmentoN3: 'BODEGA', macroN1: 'TRADE TRADICIONAL (UTT)', codigo: 'UTT-02',
+      variante: 'CANAL X', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL', codigo: 'DTT-02',
       metodo: 'EXACTO', activa: true,
     })
 
@@ -146,7 +146,7 @@ describe('export actions', () => {
       expect(savedBlob).toBeDefined()
       const text = await savedBlob!.text()
       expect(text.startsWith('variante,segmento_n3,macro_canal_n1,codigo\r\n')).toBe(true)
-      expect(text).toContain('CANAL X,BODEGA,TRADE TRADICIONAL (UTT),UTT-02')
+      expect(text).toContain('CANAL X,Bodegas,TRADE TRADICIONAL,DTT-02')
     } finally {
       adapters.saveBlob = original
     }
@@ -154,7 +154,7 @@ describe('export actions', () => {
 
   test('exportManualMaestro builds a CSV with the expected header + a manual row, then saveBlob', async () => {
     await putManualMaestro({
-      rif: 'J-500522657', razonSocial: 'Cliente A', segmentoN3: 'BODEGA', macroN1: 'TRADE TRADICIONAL (UTT)',
+      rif: 'J-500522657', razonSocial: 'Cliente A', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL',
       metodo: 'MANUAL', confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
 
@@ -171,7 +171,7 @@ describe('export actions', () => {
       expect(savedName).toBe('maestro_manual.csv')
       const text = await savedBlob!.text()
       expect(text.startsWith('rif,segmento_n3,macro_canal_n1,regla\r\n')).toBe(true)
-      expect(text).toContain('J500522657,BODEGA,TRADE TRADICIONAL (UTT),MANUAL')
+      expect(text).toContain('J500522657,Bodegas,TRADE TRADICIONAL,MANUAL')
     } finally {
       adapters.saveBlob = original
     }
@@ -253,7 +253,7 @@ describe('exportUnclassifiedZip', () => {
 describe('deleteLearnedDiccionario and deleteManualMaestro', () => {
   test('deletes a learned diccionario variant and refreshes the lists', async () => {
     await putLearnedDiccionario({
-      variante: 'VARIANTE A ELIMINAR', segmentoN3: 'BODEGA', macroN1: 'TRADE TRADICIONAL (UTT)', codigo: 'UTT-02',
+      variante: 'VARIANTE A ELIMINAR', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL', codigo: 'DTT-02',
       metodo: 'EXACTO', activa: true,
     })
     await useStore.getState().refreshLearned()
@@ -269,7 +269,7 @@ describe('deleteLearnedDiccionario and deleteManualMaestro', () => {
 
   test('deletes a manual maestro RIF and refreshes the lists', async () => {
     await putManualMaestro({
-      rif: 'J-12345678-9', razonSocial: 'Cliente Test', segmentoN3: 'ABASTO', macroN1: 'TRADE TRADICIONAL (UTT)',
+      rif: 'J-12345678-9', razonSocial: 'Cliente Test', segmentoN3: 'Abastos', macroN1: 'TRADE TRADICIONAL',
       metodo: 'MANUAL', confianza: 'N3', estadoHabitual: null, fechaClasificacion: null, reglaCanonica: 'MANUAL',
     })
     await useStore.getState().refreshLearned()
@@ -284,3 +284,24 @@ describe('deleteLearnedDiccionario and deleteManualMaestro', () => {
   })
 })
 
+
+describe('importAliasesCsv — validación de estado', () => {
+  test('canonicaliza estados válidos (con acentos/minúsculas) y descarta SOLO el estado inválido', async () => {
+    const csv = `distribuidor,codigo_cliente,rif_canonico,razon_social,estado_std\n` +
+      `CAMPESINO,BAR-00236,J-402116012,EMBUTIDOS CASA ITALIA,anzoátegui\n` +
+      `CAMPESINO,BAR-00300,J-402116013,OTRO CLIENTE,ESTADO INVENTADO\n` +
+      `CAMPESINO,,J-402116014,SIN CODIGO,ZULIA\n`
+    const file = new File([csv], 'aliases.csv', { type: 'text/csv' })
+
+    const result = await useStore.getState().importAliasesCsv(file)
+    expect(result).toEqual({ added: 2, skipped: 1 })
+
+    const aliases = useStore.getState().learnedAliasesList
+    const valido = aliases.find((a) => a.codigoCliente === 'BAR-00236')
+    expect(valido?.estadoStd).toBe('ANZOATEGUI')     // canonicalized against the 24-estado catalog
+    expect(valido?.rifCanonico).toBe('J402116012')   // RIF normalized on write
+    const invalido = aliases.find((a) => a.codigoCliente === 'BAR-00300')
+    expect(invalido).toBeDefined()                   // the alias survives…
+    expect(invalido?.estadoStd).toBeUndefined()      // …but the made-up estado does not
+  })
+})

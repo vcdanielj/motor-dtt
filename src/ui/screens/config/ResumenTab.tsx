@@ -52,7 +52,7 @@ export default function ResumenTab({ showToast }: { showToast: (msg: string) => 
         </div>
       ) : (
         <div className="rounded-xl border border-green/30 bg-green/10 px-4 py-3 text-xs leading-relaxed text-ink">
-          <span className="font-bold text-green">Catálogo Oficial Confirmado:</span> Catálogos estandarizados según el Entregable 2.1. Fuente: <code className="font-mono bg-green/5 px-1 py-0.5 rounded text-green-700">{seeds.provenance.source}</code>
+          <span className="font-bold text-green">Catálogo Oficial Confirmado:</span> Los 14 segmentos oficiales del CEC y los 24 estados. Fuente: <code className="font-mono bg-green/5 px-1 py-0.5 rounded text-green-700">{seeds.provenance.source}</code>
         </div>
       )}
 

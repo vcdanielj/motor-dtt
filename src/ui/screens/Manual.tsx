@@ -253,8 +253,8 @@ export default function Manual() {
               Cada semestre, los <strong>63 distribuidores</strong> del canal DTT reportan cerca de{' '}
               <strong>740.000 transacciones</strong>, cada uno con su propio formato. Las dos variables cualitativas
               críticas —<strong>Segmento de Tienda</strong> (el tipo de cliente: abasto, panadería, farmacia…) y{' '}
-              <strong>Estado</strong>— llegan como texto libre: cientos de variantes para lo que deberían ser 37
-              segmentos, registros sin segmento y estados marcados «NO IDENTIFICADO».
+              <strong>Estado</strong>— llegan como texto libre: cientos de variantes para lo que deberían ser 14
+              segmentos oficiales, registros sin segmento y estados marcados «NO IDENTIFICADO».
             </p>
             <p>
               Eso hace imposible calcular distribución numérica, sell-out por formato de tienda o cobertura
@@ -327,7 +327,7 @@ export default function Manual() {
               estado al diccionario de estados, y los conflictos de RIF al maestro manual.
             </Step>
             <Step n={5} title="Exportar la base estandarizada">
-              Descargas el CSV con todas las columnas originales intactas más las columnas estandarizadas (segmento
+              Descargas un XLSX (listo para abrir en Excel) con todas las columnas originales intactas más las columnas estandarizadas (segmento
               N3, macro-canal, estado, método, banderas y trazabilidad) listo para Power BI, desde el botón{' '}
               <strong>«Descargar base estandarizada»</strong> en <strong>Corrida</strong>.
             </Step>
@@ -415,10 +415,10 @@ export default function Manual() {
               La tabla de clientes por RIF con su segmento, macro-canal, método de clasificación, confianza, regla canónica aplicada y <strong>desglose multi-sucursal / multi-estado</strong>. Buscable por RIF o nombre.
             </ScreenCard>
             <ScreenCard icon="⇄" title="Homologación de Códigos (Alias)">
-              Mapea códigos internos de clientes de distribuidores que no colocan RIF a su RIF canónico y razón social oficial (ej. Campesino <em>BAR-00236</em> → <em>J-402116012</em>). Permite registro interactivo, búsqueda, e importación/exportación CSV.
+              Mapea códigos internos de clientes de distribuidores que no colocan RIF a su RIF canónico, razón social y estado (ej. Campesino <em>BAR-00236</em> → <em>J-402116012</em>). Cruza por distribuidor + código, y si el código es distintivo y único en la base también aplica aunque el nombre del distribuidor varíe. La homologación aplica tanto en la corrida como en la base estandarizada exportada. Permite registro interactivo, búsqueda, e importación/exportación CSV.
             </ScreenCard>
             <ScreenCard icon="⚙" title="Configuración">
-              Catálogos (37 segmentos, 8 macro-canales, 24 estados, diccionario de segmentos, diccionario de
+              Catálogos (14 segmentos oficiales, 24 estados, diccionario de segmentos, diccionario de
               variantes de estado, matriz ciudad→estado y base de homologaciones) y umbrales del motor, ahora editables. Puedes exportar e
               importar (CSV) los diccionarios, homologaciones y el maestro aprendidos, con opción de «Restablecer aprendizaje».
             </ScreenCard>
@@ -479,7 +479,7 @@ export default function Manual() {
               }
             >
               Coincidencia aproximada (token-sort) contra las variantes conocidas. Si la similitud es{' '}
-              <strong>92 o más</strong>, se clasifica. «MINIMARKTS» → <strong>MINI MARKET</strong>.
+              <strong>92 o más</strong>, se clasifica. «MINIMARKTS» → <strong>SMI - Mini Market</strong>.
             </CascadeNode>
             <CascadeArrow indent>similitud entre 80 y 91</CascadeArrow>
             <CascadeNode
@@ -501,8 +501,9 @@ export default function Manual() {
 
           <Callout tone="amber" icon="!" title="Categorías combinadas">
             Cuando un distribuidor reporta un valor combinado (p. ej. «ABASTOS / BODEGAS»), el motor aplica la
-            decisión de diseño del catálogo (por defecto, ABASTO) en lugar de adivinar. Los valores demasiado
-            genéricos («OTROS», «COMÚN») van a revisión.
+            decisión de diseño del catálogo (por defecto, Abastos) en lugar de adivinar. «OTROS» y «EMPLEADOS»
+            se clasifican en el segmento oficial «Otros» (la exclusión de empleados de la medición se hace
+            a lo interno con la columna valor_original_segmento); solo lo verdaderamente irreconocible va a revisión.
           </Callout>
         </section>
 
@@ -675,30 +676,31 @@ export default function Manual() {
 
         {/* ============= 08 · El catálogo estándar ============= */}
         <section id="catalogo">
-          <SectionHead n="08" title="El catálogo estándar" sub="La fuente de verdad: alineada a Nielsen Venezuela (Entregable 2.1)." />
+          <SectionHead n="08" title="El catálogo estándar" sub="La fuente de verdad: los 14 segmentos oficiales del CEC." />
           <Prose>
             <p>
               Toda la clasificación se apoya en un catálogo oficial embebido en la herramienta. Son{' '}
-              <strong>37 segmentos (Nivel&nbsp;3)</strong> agrupados en <strong>8 macro-canales (Nivel&nbsp;1)</strong>,
-              más <strong>24 estados</strong>, una matriz de <strong>~200 equivalencias</strong> de variantes de
+              <strong>exactamente 14 segmentos (Nivel&nbsp;3)</strong> —los que solicita el CEC, con{' '}
+              <strong>Otros</strong> como segmento per se—,
+              más <strong>24 estados</strong>, una matriz de <strong>~280 equivalencias</strong> de variantes de
               segmento y un <strong>diccionario de variantes de estado</strong> (abreviaturas, renombres oficiales y
               errores de escritura) respaldado por una matriz de <strong>~150 ciudades</strong>, todo encontrado en
               la data real.
             </p>
           </Prose>
           <div className="mt-4 flex max-w-[720px] flex-wrap gap-2">
-            <MacroPill label="Trade Tradicional (UTT)" count={12} />
-            <MacroPill label="Supermercados Independientes" count={5} />
-            <MacroPill label="Cadenas" count={3} />
-            <MacroPill label="Farmacias Modernas" count={3} />
-            <MacroPill label="Bodegones" count={2} />
-            <MacroPill label="Mayoristas" count={4} />
-            <MacroPill label="On Premise / Foodservice" count={5} />
-            <MacroPill label="Tiendas Especializadas" count={3} />
+            <MacroPill label="Trade Tradicional" count={6} />
+            <MacroPill label="SMI" count={2} />
+            <MacroPill label="Bodegones" count={1} />
+            <MacroPill label="Farmacias" count={1} />
+            <MacroPill label="Horeca" count={1} />
+            <MacroPill label="Mayoristas" count={1} />
+            <MacroPill label="Tiendas de Conveniencia" count={1} />
+            <MacroPill label="Otros" count={1} />
           </div>
           <Prose>
             <p>
-              Cada segmento tiene un código (UTT-01, SI-05, FS-03…) para facilitar la integración con ERPs. En{' '}
+              Cada segmento tiene un código (DTT-01 a DTT-14) para facilitar la integración con ERPs. En{' '}
               <strong>Configuración</strong> puedes ver los conteos cargados y su procedencia. El catálogo se puede
               actualizar sin tocar la herramienta: es un cambio de datos, no de programa.
             </p>
@@ -827,10 +829,10 @@ export default function Manual() {
           <SectionHead n="12" title="Glosario" sub="Los términos que verás en la herramienta." />
           <dl className="mt-4 max-w-[68ch]">
             <GlossItem term="Segmento N3">
-              El tipo de tienda estándar (Nivel 3): abasto, panadería, mini market, etc. Hay 37.
+              El tipo de tienda estándar (Nivel 3): Abastos, Panaderias y Pastelerias, SMI - Mini Market, etc. Hay 14.
             </GlossItem>
             <GlossItem term="Macro-canal N1">
-              La agrupación superior de los segmentos (Nivel 1): Trade Tradicional, Cadenas, Mayoristas… Hay 8.
+              La agrupación superior de los segmentos (Nivel 1): Trade Tradicional, SMI, Mayoristas… Hay 8.
             </GlossItem>
             <GlossItem term="Cascada">
               La secuencia de métodos de resolución, aplicados en orden de certeza hasta que uno acierta.

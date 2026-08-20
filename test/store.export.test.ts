@@ -82,7 +82,7 @@ test('exportBase reuses the run file, calls runExport (version+runId only, no ma
     expect(runExportArgs[1]).toBe(versionDiccionario)
     expect(runExportArgs[2]).toBe(runId)
     expect(saveArgs[0]).toBe(fakeBlob)
-    expect(saveArgs[1]).toBe(`base_estandarizada_${runId}.csv`)
+    expect(saveArgs[1]).toBe(`base_estandarizada_${runId}.xlsx`)
   } finally {
     adapters.runExport = originalRunExport
     adapters.saveBlob = originalSaveBlob

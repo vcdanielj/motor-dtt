@@ -49,7 +49,7 @@ describe('buildClientesWorkbook', () => {
     expect(wb.worksheets.map((w) => w.name)).toEqual([HOJA_CLIENTES, HOJA_SEGMENTOS, HOJA_ESTADOS])
   })
 
-  test('lists all 37 segments and all 24 estados in the reference sheets', async () => {
+  test('lists all 14 official segments and all 24 estados in the reference sheets', async () => {
     const wb = buildClientesWorkbook([cliente()], SEEDS.segmentos, SEEDS.estados)
     const segs = await comoMatriz(wb, HOJA_SEGMENTOS)
     const ests = await comoMatriz(wb, HOJA_ESTADOS)
@@ -106,20 +106,20 @@ describe('round trip: generate → fill → parse', () => {
     const wb = buildClientesWorkbook(
       [
         cliente({ rif: 'J-1', razonSocial: 'UNO' }),
-        cliente({ rif: 'J-2', razonSocial: 'DOS', faltaSegmento: false, segmentoActual: 'BODEGA' }),
+        cliente({ rif: 'J-2', razonSocial: 'DOS', faltaSegmento: false, segmentoActual: 'Bodegas' }),
       ],
       SEEDS.segmentos, SEEDS.estados,
     )
     // The distributor fills in the blanks.
     const ws = wb.getWorksheet(HOJA_CLIENTES)!
-    ws.getCell('E5').value = 'ABASTO'
+    ws.getCell('E5').value = 'Abastos'
     ws.getCell('F5').value = 'ZULIA'
     ws.getCell('F6').value = 'MIRANDA'
 
     const filas = parsePlantillaClientes(await comoMatriz(wb))
     expect(filas).toEqual([
-      { rif: 'J-1', razonSocial: 'UNO', segmentoCrudo: 'ABASTO', estadoCrudo: 'ZULIA' },
-      { rif: 'J-2', razonSocial: 'DOS', segmentoCrudo: 'BODEGA', estadoCrudo: 'MIRANDA' },
+      { rif: 'J-1', razonSocial: 'UNO', segmentoCrudo: 'Abastos', estadoCrudo: 'ZULIA' },
+      { rif: 'J-2', razonSocial: 'DOS', segmentoCrudo: 'Bodegas', estadoCrudo: 'MIRANDA' },
     ])
   })
 
@@ -133,7 +133,8 @@ describe('round trip: generate → fill → parse', () => {
 
 describe('matchSegmento / matchEstado', () => {
   test('match the catalog case- and accent-insensitively', () => {
-    expect(matchSegmento('bodega', SEEDS.segmentos)?.n3).toBe('BODEGA')
+    expect(matchSegmento('bodegas', SEEDS.segmentos)?.n3).toBe('Bodegas')
+    expect(matchSegmento('smi - mini market', SEEDS.segmentos)?.n3).toBe('SMI - Mini Market')
     expect(matchEstado('anzoátegui', SEEDS.estados)).toBe('ANZOATEGUI')
   })
 
@@ -167,7 +168,7 @@ describe('importClientesTemplate (store)', () => {
       SEEDS.segmentos, SEEDS.estados,
     )
     const ws = wb.getWorksheet(HOJA_CLIENTES)!
-    ws.getCell('E5').value = 'ABASTO'
+    ws.getCell('E5').value = 'Abastos'
     ws.getCell('F5').value = 'ZULIA'
 
     const result = await useStore.getState().importClientesTemplate(await comoArchivo(wb))
@@ -178,8 +179,8 @@ describe('importClientesTemplate (store)', () => {
     expect(maestro[0]).toMatchObject({
       rif: 'J111111111',
       razonSocial: 'UNO',
-      segmentoN3: 'ABASTO',
-      macroN1: 'TRADE TRADICIONAL (UTT)',
+      segmentoN3: 'Abastos',
+      macroN1: 'TRADE TRADICIONAL',
       estadoHabitual: 'ZULIA',
       metodo: 'MANUAL',
     })
@@ -197,7 +198,7 @@ describe('importClientesTemplate (store)', () => {
 
   test('a second import merges instead of erasing what the first one captured', async () => {
     const soloSegmento = buildClientesWorkbook([cliente({ rif: 'J-3' })], SEEDS.segmentos, SEEDS.estados)
-    soloSegmento.getWorksheet(HOJA_CLIENTES)!.getCell('E5').value = 'KIOSCO'
+    soloSegmento.getWorksheet(HOJA_CLIENTES)!.getCell('E5').value = 'Kioscos'
     await useStore.getState().importClientesTemplate(await comoArchivo(soloSegmento))
 
     const soloEstado = buildClientesWorkbook([cliente({ rif: 'J-3' })], SEEDS.segmentos, SEEDS.estados)
@@ -206,7 +207,7 @@ describe('importClientesTemplate (store)', () => {
 
     const maestro = await getManualMaestro()
     expect(maestro).toHaveLength(1)
-    expect(maestro[0]).toMatchObject({ segmentoN3: 'KIOSCO', estadoHabitual: 'LARA' })
+    expect(maestro[0]).toMatchObject({ segmentoN3: 'Kioscos', estadoHabitual: 'LARA' })
   })
 
   test('a row that resolves neither field is skipped, not stored empty', async () => {
@@ -245,7 +246,7 @@ describe('exportUnclassifiedZip (store)', () => {
         runResult: {
           clientesSinClasificar: [
             cliente2({ distribuidor: 'DIST NORTE', rif: 'J-1', razonSocial: 'UNO' }),
-            cliente2({ distribuidor: 'DIST SUR', rif: 'J-2', razonSocial: 'DOS', faltaSegmento: false, segmentoActual: 'BODEGA' }),
+            cliente2({ distribuidor: 'DIST SUR', rif: 'J-2', razonSocial: 'DOS', faltaSegmento: false, segmentoActual: 'Bodegas' }),
           ],
         } as never,
       })

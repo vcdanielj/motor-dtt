@@ -5,11 +5,13 @@ import { buildEstadoContext } from '@/pipeline/estado'
 import { MaestroBuilder } from '@/pipeline/maestro'
 import { detectSchema } from '@/ingest/schema-detect'
 import { OUTPUT_COLUMNS } from '@/contracts/row'
+import { buildAliasIndex } from '@/pipeline/alias'
 import {
   detectExportExtraCols,
   observeExportRow,
   exportRowLine,
   exportHeaderLine,
+  rifConAlias,
 } from '@/reports/export-base'
 
 // Drives the export helpers exactly as the worker's two internal passes do — Pass A observes
@@ -51,7 +53,7 @@ describe('export recovery — full maestro applied, uncapped', () => {
     const { lines } = runExportOverRows(headers, rows, 'v1', 'run-1')
 
     const recovered = parseLine(headers, lines[2]) // second data row
-    expect(recovered.segmento_n3_std).toBe('BODEGA')
+    expect(recovered.segmento_n3_std).toBe('Bodegas')
     expect(recovered.metodo_segmento).toBe('MAESTRO')
     expect(recovered.flag_registro).toBe('OK')
     expect(recovered.run_id).toBe('run-1')
@@ -71,7 +73,7 @@ describe('export recovery — full maestro applied, uncapped', () => {
 
     const recovered = parseLine(headers, lines[lines.length - 1]) // the trailing empty-segment row
     expect(recovered.RIF).toBe('J-600')
-    expect(recovered.segmento_n3_std).toBe('BODEGA')
+    expect(recovered.segmento_n3_std).toBe('Bodegas')
     expect(recovered.metodo_segmento).toBe('MAESTRO')
   })
 
@@ -84,5 +86,88 @@ describe('export recovery — full maestro applied, uncapped', () => {
     expect(row.segmento_n3_std).toBe('')
     expect(row.metodo_segmento).toBe('')
     expect(row.flag_registro).toBe('SIN_CLASIFICAR')
+  })
+})
+
+describe('export homologación — los alias aplican también en el archivo exportado', () => {
+  // The worker's pipeline pass resolved alias rows, but the export pass used to ignore aliases
+  // entirely — the exported base LOST every homologation the corrida had already counted.
+  function runExportConAlias(headers: string[], rows: Record<string, string>[]) {
+    const index = buildIndex(SEEDS.diccionario)
+    const est = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado)
+    const schema = detectSchema(headers)
+    const cols = detectExportExtraCols(headers)
+    const aliasIndex = buildAliasIndex([
+      {
+        distribuidor: 'ALIMENTOS CAMPESINO',
+        codigoCliente: 'BAR-00236',
+        rifCanonico: 'J-402116012',
+        razonSocial: 'EMBUTIDOS CASA ITALIA C.A.',
+        activa: true,
+      },
+    ])
+
+    const segSeed: SegmentoContext = { index, maestro: new Map(), fuzzyThreshold: 92, fuzzySuggestFloor: 80 }
+    const builder = new MaestroBuilder()
+    for (const rec of rows) observeExportRow(builder, rec, schema, cols, segSeed, est, aliasIndex)
+    const { maestro } = builder.build()
+
+    // Pass B mirrors the worker: the estado cascade's RIF step runs with the maestro's habitual estados.
+    const estadoByRif = new Map<string, string>()
+    for (const [rifKey, entry] of maestro) {
+      if (entry.estadoHabitual) estadoByRif.set(rifKey, entry.estadoHabitual)
+    }
+    const estWithRif = buildEstadoContext(SEEDS.estados, SEEDS.ciudadEstado, estadoByRif)
+
+    const seg: SegmentoContext = { index, maestro, fuzzyThreshold: 92, fuzzySuggestFloor: 80 }
+    const lines = [
+      exportHeaderLine(headers),
+      ...rows.map((rec) => exportRowLine(rec, headers, schema, seg, estWithRif, 'v1', 'run-1', cols, aliasIndex)),
+    ]
+    return { lines, maestro }
+  }
+
+  test('rifConAlias: fila sin RIF con código homologado resuelve al RIF canónico', () => {
+    const headers = ['DISTRIBUIDOR', 'COD CLIENTE', 'RIF', 'CANAL', 'EDO']
+    const schema = detectSchema(headers)
+    const cols = detectExportExtraCols(headers)
+    const aliasIndex = buildAliasIndex([
+      { distribuidor: 'ALIMENTOS CAMPESINO', codigoCliente: 'BAR-00236', rifCanonico: 'J-402116012', activa: true },
+    ])
+
+    const conAlias = rifConAlias(
+      { DISTRIBUIDOR: 'ALIMENTOS CAMPESINO', 'COD CLIENTE': 'BAR-00236', RIF: '', CANAL: 'Bodegas', EDO: 'Zulia' },
+      schema, cols, aliasIndex,
+    )
+    expect(conAlias.rif).toBe('J402116012')
+    expect(conAlias.alias?.razonSocial).toBeUndefined()
+
+    // A row that DOES carry a RIF keeps it verbatim — the alias never overrides real data.
+    const conRif = rifConAlias(
+      { DISTRIBUIDOR: 'ALIMENTOS CAMPESINO', 'COD CLIENTE': 'BAR-00236', RIF: 'J-999', CANAL: '', EDO: '' },
+      schema, cols, aliasIndex,
+    )
+    expect(conRif.rif).toBe('J-999')
+    expect(conRif.alias).toBeNull()
+  })
+
+  test('una fila sin RIF ni segmento se recupera como MAESTRO vía el alias en el export', () => {
+    const headers = ['DISTRIBUIDOR', 'COD CLIENTE', 'RIF', 'CANAL', 'EDO']
+    const rows = [
+      // Same client: one row classifies (feeds the maestro under the canonical RIF)…
+      { DISTRIBUIDOR: 'ALIMENTOS CAMPESINO', 'COD CLIENTE': 'BAR-00236', RIF: '', CANAL: 'Bodegas', EDO: 'Zulia' },
+      // …and one row has neither RIF nor segment — only the alias→maestro chain can recover it.
+      { DISTRIBUIDOR: 'ALIMENTOS CAMPESINO', 'COD CLIENTE': 'BAR-00236', RIF: '', CANAL: '', EDO: '' },
+    ]
+    const { lines, maestro } = runExportConAlias(headers, rows)
+
+    expect(maestro.has('J402116012')).toBe(true)
+    expect(maestro.get('J402116012')?.razonSocial).toBe('EMBUTIDOS CASA ITALIA C.A.')
+
+    const recovered = parseLine(headers, lines[2])
+    expect(recovered.segmento_n3_std).toBe('Bodegas')
+    expect(recovered.metodo_segmento).toBe('MAESTRO')
+    // The estado also recovers via the client's habitual estado (RIF step).
+    expect(recovered.estado_std).toBe('ZULIA')
   })
 })

@@ -4,6 +4,7 @@
 // fallback values and putters no-op, so the app keeps working purely on the embedded SEEDS.
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { normalizeText, normalizeRif } from '@/ingest/normalize'
+import { migrarSegmentoN3 } from '@/seeds/segmentos'
 import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 import { makeAliasKey } from '@/pipeline/alias'
@@ -54,11 +55,22 @@ function openMotorDB(): Promise<IDBPDatabase<MotorDTTSchema> | null> {
   return dbPromise
 }
 
-/** All learned diccionario entries (beyond the embedded seeds). [] if IndexedDB is unavailable. */
+/** All learned diccionario entries (beyond the embedded seeds), migrated to the official
+ *  14-segment catalog on read: entries taught while the old 37-N3 catalog was live are remapped
+ *  ('ABASTO' → 'Abastos', 'MINI MARKET' → 'SMI - Mini Market', …) so no corrida can ever emit a
+ *  segment outside the official list. Entries pointing at nothing recognizable are dropped.
+ *  [] if IndexedDB is unavailable. */
 export async function getLearnedDiccionario(): Promise<DiccionarioEntry[]> {
   const db = await openMotorDB()
   if (!db) return []
-  return db.getAll('diccionario')
+  const entries = await db.getAll('diccionario')
+  const migrated: DiccionarioEntry[] = []
+  for (const e of entries) {
+    const seg = migrarSegmentoN3(e.segmentoN3)
+    if (!seg) continue
+    migrated.push({ ...e, segmentoN3: seg.n3, macroN1: seg.macroN1, codigo: seg.codigo })
+  }
+  return migrated
 }
 
 /** Persists a learned diccionario entry, keyed by normalizeText(variante) — re-putting a
@@ -135,11 +147,20 @@ export async function deleteLearnedAlias(distribuidor: string, codigoCliente: st
   await db.delete('aliases', key)
 }
 
-/** All manually-classified maestro entries (metodo: 'MANUAL'). [] if IndexedDB is unavailable. */
+/** All manually-classified maestro entries (metodo: 'MANUAL'), with any old-catalog segment
+ *  remapped to the official 14 on read (an unrecognizable segment is nulled out — the entry's
+ *  estadoHabitual is still worth keeping). [] if IndexedDB is unavailable. */
 export async function getManualMaestro(): Promise<MaestroEntry[]> {
   const db = await openMotorDB()
   if (!db) return []
-  return db.getAll('maestro')
+  const entries = await db.getAll('maestro')
+  return entries.map((e) => {
+    if (e.segmentoN3 == null) return e
+    const seg = migrarSegmentoN3(e.segmentoN3)
+    return seg
+      ? { ...e, segmentoN3: seg.n3, macroN1: seg.macroN1 }
+      : { ...e, segmentoN3: null, macroN1: null }
+  })
 }
 
 /** Persists a manual maestro classification, keyed by normalizeRif(rif). */

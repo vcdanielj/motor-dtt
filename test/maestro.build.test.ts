@@ -147,6 +147,7 @@ describe('MaestroBuilder — CONFLICTO_MAYOR (cross-macro, not auto-assigned)', 
     expect(conflictos).toEqual([
       {
         rif: 'J-4',
+        razonSocial: null,
         macros: [MAYORISTAS, UTT].sort(),
         segmentos: ['BODEGA', 'MAYORISTA CON FUERZA DE VENTA'].sort(),
         registros: 2,
@@ -261,5 +262,50 @@ describe('MaestroBuilder — estado-only clients', () => {
     }
     expect(build(['ZULIA', 'MIRANDA'])).toBe('MIRANDA')
     expect(build(['MIRANDA', 'ZULIA'])).toBe('MIRANDA')
+  })
+})
+
+describe('MaestroBuilder — el segmento Otros no compite ni genera conflictos', () => {
+  test('Abastos + Otros (macros distintos) NO es CONFLICTO_MAYOR: gana Abastos', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-10', segmentoN3: 'Abastos', macroN1: 'TRADE TRADICIONAL', metodo: 'EXACTO', fechaOrden: 202510 })
+    b.observe({ rif: 'J-10', segmentoN3: 'Otros', macroN1: 'OTROS', metodo: 'EXACTO', fechaOrden: 202603 })
+
+    const { maestro, conflictos } = b.build()
+
+    expect(conflictos).toEqual([])
+    const entry = maestro.get(normalizeRif('J-10'))
+    expect(entry?.segmentoN3).toBe('Abastos')
+  })
+
+  test('Otros más reciente NUNCA desplaza a un segmento específico', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-11', segmentoN3: 'Otros', macroN1: 'OTROS', metodo: 'EXACTO', fechaOrden: 202606 })
+    b.observe({ rif: 'J-11', segmentoN3: 'Farmacias', macroN1: 'FARMACIAS', metodo: 'EXACTO', fechaOrden: 202501 })
+
+    const { maestro, conflictos } = b.build()
+    expect(conflictos).toEqual([])
+    expect(maestro.get(normalizeRif('J-11'))?.segmentoN3).toBe('Farmacias')
+  })
+
+  test('un cliente observado SOLO como Otros sí queda clasificado Otros', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-12', segmentoN3: 'Otros', macroN1: 'OTROS', metodo: 'EXACTO', fechaOrden: null })
+
+    const { maestro, conflictos } = b.build()
+    expect(conflictos).toEqual([])
+    expect(maestro.get(normalizeRif('J-12'))?.segmentoN3).toBe('Otros')
+  })
+
+  test('una clasificación MANUAL en Otros se respeta sobre lo observado en el archivo', () => {
+    const b = new MaestroBuilder()
+    b.observe({ rif: 'J-13', segmentoN3: 'Otros', macroN1: 'OTROS', metodo: 'MANUAL', fechaOrden: Number.MAX_SAFE_INTEGER })
+    b.observe({ rif: 'J-13', segmentoN3: 'Bodegas', macroN1: 'TRADE TRADICIONAL', metodo: 'EXACTO', fechaOrden: 202603 })
+
+    const { maestro, conflictos } = b.build()
+    expect(conflictos).toEqual([])
+    const entry = maestro.get(normalizeRif('J-13'))
+    expect(entry?.segmentoN3).toBe('Otros')
+    expect(entry?.reglaCanonica).toBe('MANUAL')
   })
 })
