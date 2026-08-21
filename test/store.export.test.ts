@@ -49,24 +49,35 @@ async function seedCompletedRun(file: File) {
   await useStore.getState().startPipeline(file)
 }
 
-test('exportBase reuses the run file, calls runExport (version+runId only, no maestro) then saveBlob, and lands on done', async () => {
+test('exportBase reuses the run file, calls runExport (version+runId only, no maestro) then writes, and lands on done', async () => {
   const file = new File(['a'], 'real.csv')
   await seedCompletedRun(file)
   const { runId, versionDiccionario } = useStore.getState()
   expect(runId).not.toBeNull()
 
   const fakeBlob = new Blob(['x'], { type: 'text/csv' })
+  const orden: string[] = []
   let runExportArgs: unknown[] = []
-  let saveArgs: unknown[] = []
+  let pickArgs: unknown[] = []
+  let writeArgs: unknown[] = []
   const originalRunExport = adapters.runExport
-  const originalSaveBlob = adapters.saveBlob
+  const originalPick = adapters.pickSaveTarget
+  const originalWrite = adapters.writeToTarget
+  const fakeTarget = { kind: 'handle' as const, handle: { createWritable: async () => ({ write: async () => {}, close: async () => {} }) } }
+  adapters.pickSaveTarget = async (name, types) => {
+    orden.push('pick')
+    pickArgs = [name, types]
+    return fakeTarget
+  }
   adapters.runExport = async (f, version, id, onProgress: (e: ProgressEvent) => void) => {
+    orden.push('export')
     runExportArgs = [f, version, id]
     onProgress({ type: 'progress', rows: 5000, distributors: 0, clientes: 0, bytesRead: 0 })
     return { blob: fakeBlob, rows: 5000 }
   }
-  adapters.saveBlob = async (blob, name) => {
-    saveArgs = [blob, name]
+  adapters.writeToTarget = async (target, blob, name) => {
+    orden.push('write')
+    writeArgs = [target, blob, name]
     return 'saved'
   }
 
@@ -75,17 +86,47 @@ test('exportBase reuses the run file, calls runExport (version+runId only, no ma
 
     expect(useStore.getState().exportState).toBe('done')
     expect(useStore.getState().exportRows).toBe(5000)
+    // THE regression guard: the destination is picked BEFORE the (minutes-long) export. Asking
+    // afterwards outlives the browser's user-activation window and Chrome refuses the picker with
+    // "Must be handling a user gesture to show a file picker", losing the finished export.
+    expect(orden).toEqual(['pick', 'export', 'write'])
     // Only 3 args: file, version, runId — the capped runResult.maestro is NOT passed (the worker
     // builds the full maestro itself), so recovery can never be limited to the 500-row view array.
     expect(runExportArgs).toHaveLength(3)
     expect(runExportArgs[0]).toBe(file)
     expect(runExportArgs[1]).toBe(versionDiccionario)
     expect(runExportArgs[2]).toBe(runId)
-    expect(saveArgs[0]).toBe(fakeBlob)
-    expect(saveArgs[1]).toBe(`base_estandarizada_${runId}.xlsx`)
+    expect(pickArgs[0]).toBe(`base_estandarizada_${runId}.xlsx`)
+    expect(writeArgs[0]).toBe(fakeTarget)
+    expect(writeArgs[1]).toBe(fakeBlob)
+    expect(writeArgs[2]).toBe(`base_estandarizada_${runId}.xlsx`)
   } finally {
     adapters.runExport = originalRunExport
-    adapters.saveBlob = originalSaveBlob
+    adapters.pickSaveTarget = originalPick
+    adapters.writeToTarget = originalWrite
+  }
+})
+
+test('cancelling the save picker skips the export entirely — no minutes wasted on a declined file', async () => {
+  const file = new File(['a'], 'real-cancel.csv')
+  await seedCompletedRun(file)
+
+  let exportRan = false
+  const originalRunExport = adapters.runExport
+  const originalPick = adapters.pickSaveTarget
+  adapters.pickSaveTarget = async () => ({ kind: 'cancelled' as const })
+  adapters.runExport = async () => {
+    exportRan = true
+    return { blob: new Blob(['x']), rows: 1 }
+  }
+
+  try {
+    await useStore.getState().exportBase()
+    expect(exportRan).toBe(false)
+    expect(useStore.getState().exportState).toBe('idle')
+  } finally {
+    adapters.runExport = originalRunExport
+    adapters.pickSaveTarget = originalPick
   }
 })
 
@@ -100,16 +141,16 @@ test('a cancelled File System Access save returns exportState to idle quietly (n
   await seedCompletedRun(file)
 
   const originalRunExport = adapters.runExport
-  const originalSaveBlob = adapters.saveBlob
+  const originalWrite = adapters.writeToTarget
   adapters.runExport = async () => ({ blob: new Blob(['x']), rows: 10 })
-  adapters.saveBlob = async () => 'cancelled' as const
+  adapters.writeToTarget = async () => 'cancelled' as const
 
   try {
     await useStore.getState().exportBase()
     expect(useStore.getState().exportState).toBe('idle')
   } finally {
     adapters.runExport = originalRunExport
-    adapters.saveBlob = originalSaveBlob
+    adapters.writeToTarget = originalWrite
   }
 })
 

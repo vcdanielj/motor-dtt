@@ -234,8 +234,8 @@ describe('exportUnclassifiedZip', () => {
 
     let savedBlob: Blob | undefined
     let savedName: string | undefined
-    const original = adapters.saveBlob
-    adapters.saveBlob = async (blob, name) => {
+    const original = adapters.writeToTarget
+    adapters.writeToTarget = async (_target, blob, name) => {
       savedBlob = blob
       savedName = name
       return 'saved'
@@ -245,7 +245,7 @@ describe('exportUnclassifiedZip', () => {
       expect(savedName).toBe('planillas_distribuidores_test-run-123.zip')
       expect(savedBlob).toBeDefined()
     } finally {
-      adapters.saveBlob = original
+      adapters.writeToTarget = original
     }
   })
 })

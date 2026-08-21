@@ -155,7 +155,7 @@ export default function Corrida() {
               )}
               {exportState === 'error' && (
                 <span className="text-xs font-semibold text-red">
-                  No se pudo exportar{exportError ? `: ${exportError}` : ''} — intenta de nuevo; si persiste, cierra otras pestañas para liberar memoria.
+                  No se pudo exportar{exportError ? `: ${exportError}` : ''} — intenta de nuevo; si persiste, avisa con este mensaje.
                 </span>
               )}
             </div>

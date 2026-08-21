@@ -235,10 +235,10 @@ describe('exportUnclassifiedZip (store)', () => {
     cliente({ ...over })
 
   test('emits one styled workbook per distributor, and each one imports back cleanly', async () => {
-    const original = adapters.saveBlob
+    const original = adapters.writeToTarget
     let zipBlob: Blob | undefined
     let nombre = ''
-    adapters.saveBlob = async (blob, name) => { zipBlob = blob; nombre = name; return 'saved' }
+    adapters.writeToTarget = async (_target, blob, name) => { zipBlob = blob; nombre = name; return 'saved' }
 
     try {
       useStore.setState({
@@ -272,7 +272,7 @@ describe('exportUnclassifiedZip (store)', () => {
         expect(parsePlantillaClientes(matrix)).toHaveLength(1)
       }
     } finally {
-      adapters.saveBlob = original
+      adapters.writeToTarget = original
       useStore.setState({ runResult: null, runId: null })
     }
   })

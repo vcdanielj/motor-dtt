@@ -198,9 +198,25 @@ export const useStore = create<StoreState>((set, get) => ({
   // On-demand export (Sprint 2 · X1): re-streams the run's file through the worker's
   // export mode, which builds the FULL maestro itself (two-pass, uncapped), then saves the
   // resulting XLSX Blob. No-ops quietly if there's no completed run yet to reuse.
+  //
+  // ORDER MATTERS: the destination is picked FIRST, while the click's user activation is still
+  // valid. Exporting 800K rows takes far longer than the browser's ~5s activation window, so
+  // asking afterwards failed every single time with "Must be handling a user gesture to show a
+  // file picker" — the export ran to completion and then threw the file away.
   exportBase: async () => {
     const { lastFile, runResult, runId, versionDiccionario } = get()
     if (!lastFile || !runResult || !runId) return
+    const nombreArchivo = `base_estandarizada_${runId}.xlsx`
+    const tipos = [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+
+    const target = await adapters.pickSaveTarget(nombreArchivo, tipos)
+    // Cancelling the picker skips the whole export — no point spending a minute on a file the
+    // analyst already declined to save.
+    if (target.kind === 'cancelled') {
+      set({ exportState: 'idle', exportRows: 0, exportError: null })
+      return
+    }
+
     set({ exportState: 'running', exportRows: 0, exportError: null })
     try {
       // Same learned merge as startPipeline, so the export reflects everything taught so far.
@@ -217,11 +233,7 @@ export const useStore = create<StoreState>((set, get) => ({
         runConfig,
         get().thresholds,
       )
-      const outcome = await adapters.saveBlob(
-        blob,
-        `base_estandarizada_${runId}.xlsx`,
-        [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
-      )
+      const outcome = await adapters.writeToTarget(target, blob, nombreArchivo)
       // A user-cancelled save picker is not an error — return to idle quietly (brief §5).
       set({ exportState: outcome === 'cancelled' ? 'idle' : 'done', exportRows: rows })
     } catch (err) {
@@ -487,6 +499,14 @@ export const useStore = create<StoreState>((set, get) => ({
   exportUnclassifiedTemplate: async () => {
     const { runResult, runId } = get()
     if (!runResult || !runId || !runResult.clientesSinClasificar.length) return
+    // Destination first — same user-activation rule as exportBase.
+    const nombreArchivo = `planilla_clientes_sin_clasificar_${runId}.xlsx`
+    const tipos = [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+    const target = await adapters.pickSaveTarget(nombreArchivo, tipos)
+    if (target.kind === 'cancelled') {
+      set({ exportState: 'idle' })
+      return
+    }
     set({ exportState: 'running' })
     try {
       // Flat, unstyled variant of the same 6 columns the ZIP template uses, so both round-trip
@@ -506,11 +526,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 
-      const outcome = await adapters.saveBlob(
-        blob,
-        `planilla_clientes_sin_clasificar_${runId}.xlsx`,
-        [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
-      )
+      const outcome = await adapters.writeToTarget(target, blob, nombreArchivo)
       set({ exportState: outcome === 'cancelled' ? 'idle' : 'done' })
     } catch (err) {
       set({ exportState: 'error', exportError: (err as Error).message })
@@ -519,6 +535,15 @@ export const useStore = create<StoreState>((set, get) => ({
   exportUnclassifiedZip: async () => {
     const { runResult, runId } = get()
     if (!runResult || !runId || !runResult.clientesSinClasificar.length) return
+    // Destination first: building one styled workbook per distributor easily outlives the
+    // browser's user-activation window on a 50-distributor run.
+    const nombreArchivo = `planillas_distribuidores_${runId}.zip`
+    const tipos = [{ description: 'ZIP Archive', accept: { 'application/zip': ['.zip'] } }]
+    const target = await adapters.pickSaveTarget(nombreArchivo, tipos)
+    if (target.kind === 'cancelled') {
+      set({ exportState: 'idle' })
+      return
+    }
     set({ exportState: 'running' })
     try {
       const byDist = new Map<string, typeof runResult.clientesSinClasificar>()
@@ -539,11 +564,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' })
-      const outcome = await adapters.saveBlob(
-        zipBlob,
-        `planillas_distribuidores_${runId}.zip`,
-        [{ description: 'ZIP Archive', accept: { 'application/zip': ['.zip'] } }]
-      )
+      const outcome = await adapters.writeToTarget(target, zipBlob, nombreArchivo)
       set({ exportState: outcome === 'cancelled' ? 'idle' : 'done' })
     } catch (err) {
       set({ exportState: 'error', exportError: (err as Error).message })
