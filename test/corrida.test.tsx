@@ -98,6 +98,20 @@ test('done state with a run result shows an enabled export button that calls exp
   expect(called).toBe(1)
 })
 
+test('completed run exposes the optional JSON manifest download', () => {
+  let called = 0
+  useStore.setState((s) => ({
+    ingest: { ...s.ingest, phase: 'done', summary: BASE_RUN_RESULT.summary },
+    runResult: BASE_RUN_RESULT,
+    exportAuditManifest: async () => { called++ },
+  }))
+  render(<Corrida />)
+  const button = screen.getByRole('button', { name: /descargar manifiesto de corrida/i })
+  expect(button).toBeEnabled()
+  fireEvent.click(button)
+  expect(called).toBe(1)
+})
+
 test('export button is disabled while a run has not produced a runResult yet', () => {
   useStore.setState((s) => ({
     ingest: { ...s.ingest, phase: 'done', summary: BASE_RUN_RESULT.summary },

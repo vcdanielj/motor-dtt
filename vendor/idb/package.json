@@ -1,0 +1,30 @@
+{
+  "name": "idb",
+  "version": "8.0.3",
+  "description": "A small wrapper that makes IndexedDB usable",
+  "main": "./build/index.cjs",
+  "module": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "module": "./build/index.js",
+      "import": "./build/index.js",
+      "default": "./build/index.cjs"
+    },
+    "./build/*": "./build/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "build/**",
+    "with-*",
+    "CHANGELOG.md"
+  ],
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/jakearchibald/idb.git"
+  },
+  "author": "Jake Archibald",
+  "license": "ISC"
+}

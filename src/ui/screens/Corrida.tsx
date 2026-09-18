@@ -3,8 +3,10 @@ import { useStore } from '@/state/store'
 import Card from '@/ui/components/Card'
 import DropZone from '@/ui/components/DropZone'
 import StageBar from '@/ui/components/StageBar'
+import type { AuditComparison } from '@/audit/compare'
 
 const fmt = new Intl.NumberFormat('es-VE')
+const signed = new Intl.NumberFormat('es-VE', { maximumFractionDigits: 1, signDisplay: 'always' })
 
 // Renders a fraction-of-100 as an es-VE percentage string ("92,4%") — comma decimal.
 const pctEs = (n: number) => `${n}`.replace('.', ',') + '%'
@@ -15,6 +17,9 @@ export default function Corrida() {
   const exportState = useStore((s) => s.exportState)
   const exportError = useStore((s) => s.exportError)
   const exportBase = useStore((s) => s.exportBase)
+  const exportAuditManifest = useStore((s) => s.exportAuditManifest)
+  const compareAuditManifest = useStore((s) => s.compareAuditManifest)
+  const runId = useStore((s) => s.runId)
   const exportUnclassifiedTemplate = useStore((s) => s.exportUnclassifiedTemplate)
   const exportUnclassifiedZip = useStore((s) => s.exportUnclassifiedZip)
   const importClientesTemplate = useStore((s) => s.importClientesTemplate)
@@ -25,6 +30,10 @@ export default function Corrida() {
   const [importing, setImporting] = useState(false)
   const [showUploadOther, setShowUploadOther] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [compareError, setCompareError] = useState<string | null>(null)
+  const [comparison, setComparison] = useState<AuditComparison | null>(null)
+  const [comparing, setComparing] = useState(false)
 
   const totalAprendido =
     (learned.diccionario || 0) +
@@ -45,6 +54,31 @@ export default function Corrida() {
       setImportResult((err as Error).message || 'Error al importar plantilla')
     } finally {
       setImporting(false)
+    }
+  }
+
+  const handleAuditExport = async () => {
+    setAuditError(null)
+    try {
+      await exportAuditManifest()
+    } catch (err) {
+      setAuditError((err as Error).message || 'No se pudo guardar el manifiesto')
+    }
+  }
+
+  const handleCompareAuditChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setCompareError(null)
+    setComparison(null)
+    setComparing(true)
+    try {
+      setComparison(await compareAuditManifest(file))
+    } catch (err) {
+      setCompareError((err as Error).message || 'No se pudo leer el manifiesto')
+    } finally {
+      setComparing(false)
     }
   }
 
@@ -121,6 +155,15 @@ export default function Corrida() {
               >
                 {exportState === 'running' ? 'Generando…' : 'Descargar base estandarizada'}
               </button>
+              <button
+                type="button"
+                onClick={() => void handleAuditExport()}
+                disabled={!runResult}
+                className="rounded-md border border-line bg-white px-4 py-2 text-xs font-semibold text-navy hover:bg-line/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Descargar manifiesto de corrida (JSON)
+              </button>
+              {auditError && <span className="text-xs font-semibold text-red">{auditError}</span>}
               {runResult && runResult.clientesSinClasificar && runResult.clientesSinClasificar.length > 0 && (
                 <>
                   <button
@@ -159,6 +202,31 @@ export default function Corrida() {
                 </span>
               )}
             </div>
+
+            {runResult && (
+              <div className="mt-3 rounded-md border border-line bg-panel px-4 py-3 text-xs text-ink">
+                <div className="font-semibold text-navy">Comparar con una corrida anterior</div>
+                <p className="mt-1 text-slate">Selecciona un manifiesto JSON exportado por este motor. La comparación se calcula en este navegador.</p>
+                <input
+                  aria-label="Seleccionar manifiesto anterior"
+                  type="file"
+                  accept=".json,application/json"
+                  disabled={!runId || comparing}
+                  onChange={(e) => void handleCompareAuditChange(e)}
+                  className="mt-2 block w-full text-xs"
+                />
+                {comparing && <p className="mt-2 text-slate">Comparando…</p>}
+                {compareError && <p className="mt-2 text-red">{compareError}</p>}
+                {comparison && comparison.currentRunId === runId && (
+                  <div className="mt-3 border-t border-line pt-2">
+                    <p className="font-semibold">Cambio respecto a {comparison.previousRunId}</p>
+                    <p className="mt-1">Filas: {signed.format(comparison.delta.rows)} · Clasificación: {signed.format(comparison.delta.classifiedPercentagePoints)} pp · Estado válido: {signed.format(comparison.delta.validStatePercentagePoints)} pp</p>
+                    <p>Pendientes: {signed.format(comparison.delta.unresolvedClients)} · TON sin clasificar: {signed.format(comparison.delta.tonUnclassified)}</p>
+                    {!comparison.sameSourceMetadata && <p className="mt-1 text-red">El nombre o tamaño del archivo de origen difiere; interpreta los cambios con cautela.</p>}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Template Carga Box */}
             <div className="mt-6 border-t border-line/60 pt-5">

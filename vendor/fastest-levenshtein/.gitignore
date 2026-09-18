@@ -1,0 +1,16 @@
+node_modules/
+js/data.json
+package-lock.json
+data.json
+coverage
+test.js
+bench.js
+mod.d.ts
+mod.js
+esm
+
+# The DTT file: package includes the published JavaScript and declarations.
+!mod.js
+!mod.d.ts
+!esm/
+!esm/**

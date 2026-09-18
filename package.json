@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "verify:vendor": "node scripts/verify-vendor.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -19,15 +20,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "exceljs": "^4.4.0",
-    "fastest-levenshtein": "^1.0.16",
-    "idb": "^8.0.3",
-    "jszip": "^3.10.1",
-    "papaparse": "^5.5.4",
+    "exceljs": "file:vendor/exceljs",
+    "fastest-levenshtein": "file:vendor/fastest-levenshtein",
+    "idb": "file:vendor/idb",
+    "jszip": "file:vendor/jszip",
+    "papaparse": "file:vendor/papaparse",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "xlsx": "^0.18.5",
-    "zustand": "^4.5.7"
+    "zustand": "file:vendor/zustand"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

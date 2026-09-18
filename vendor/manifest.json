@@ -1,0 +1,77 @@
+{
+  "libraries": [
+    {
+      "name": "papaparse",
+      "version": "5.5.4",
+      "repository": "https://github.com/mholt/PapaParse",
+      "revision": "af51c9fea0ac8b3c930a7c1cb324902a10d189a4",
+      "license": "MIT",
+      "licenseFile": "vendor/papaparse/LICENSE",
+      "files": {
+        "vendor/papaparse/papaparse.js": "189571627f42b89d4339d53f34fe98c4503038b5159babe91367d5a669e26fbb",
+        "vendor/papaparse/papaparse.min.js": "ac889c7a0c70f5bdec910e93c519daad741c2cf12ee3017737e4d5d1b768a14d"
+      }
+    },
+    {
+      "name": "fastest-levenshtein",
+      "version": "1.0.16",
+      "repository": "https://github.com/ka-weihe/fastest-levenshtein",
+      "revision": "29f25a1409e09d703caf6746fa9b3a3230607d91",
+      "license": "MIT",
+      "licenseFile": "vendor/fastest-levenshtein/LICENSE.md",
+      "files": {
+        "vendor/fastest-levenshtein/mod.ts": "b7e23220aa687d18153813256787168ab2c25b88880b6b16de824a942bf0f95b",
+        "vendor/fastest-levenshtein/mod.js": "c35592ffede92667e7b645a42d2cabe0158e5f616ca91e3afd34e515f32ae49a",
+        "vendor/fastest-levenshtein/esm/mod.js": "facaa97cad7d7eed0e09509c7d90bd9adbcf979ed87d78cdb865de13c6b275d7"
+      }
+    },
+    {
+      "name": "idb",
+      "version": "8.0.3",
+      "repository": "https://github.com/jakearchibald/idb",
+      "revision": "77dd8bebf3669bbce9628e470a021ff63eb4acaf",
+      "license": "ISC",
+      "licenseFile": "vendor/idb/LICENSE",
+      "files": {
+        "vendor/idb/build/index.js": "b6720d6ed812254ba61009ea6b3de8bbf46a4fb5c2d5b65385c7525d18f4c80b",
+        "vendor/idb/build/index.cjs": "76ebce4e677107d3dc925a80487e3932858d07661fb7fb65a7301dc3956ca121"
+      }
+    },
+    {
+      "name": "jszip",
+      "version": "3.10.1",
+      "repository": "https://github.com/Stuk/jszip",
+      "revision": "0f2f1e4d0509514417db83fe5b86bde90e0ffe8d",
+      "license": "(MIT OR GPL-3.0-or-later)",
+      "licenseFile": "vendor/jszip/LICENSE.markdown",
+      "files": {
+        "vendor/jszip/dist/jszip.min.js": "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e",
+        "vendor/jszip/lib/index.js": "0fdb844fcdd6fd8ce8ced5e20b37cdabb629b4c155a1d3fb5df29c69eeb4f228"
+      }
+    },
+    {
+      "name": "zustand",
+      "version": "4.5.7",
+      "repository": "https://github.com/pmndrs/zustand",
+      "revision": "869cd7aeb6ab7b0b7f019410b94a873be9bc8501",
+      "license": "MIT",
+      "licenseFile": "vendor/zustand/LICENSE",
+      "files": {
+        "vendor/zustand/esm/index.mjs": "eaeb7f0cc57d925e6cc04636ee56cae378c1de249e2cd30dc892883e04ec4cda",
+        "vendor/zustand/index.js": "d4e46b7dfac60ee8ecda1eb1619020b4052d1a1f5366505d867eba1ee2ef4875"
+      }
+    },
+    {
+      "name": "exceljs",
+      "version": "4.4.0",
+      "repository": "https://github.com/exceljs/exceljs",
+      "revision": "ac96f9a61e9799c7776bd940f05c4a51d7200209",
+      "license": "MIT",
+      "licenseFile": "vendor/exceljs/LICENSE",
+      "files": {
+        "vendor/exceljs/dist/exceljs.min.js": "7e49da68588e250dbb8bba190d2caa8ab3787cc0284bda1d8b2f805c4df742c9",
+        "vendor/exceljs/excel.js": "6d333aaa3b9a95067a5e71902eaa63f5fe774ee3b24ad6e427f33f2f59b5c4f2"
+      }
+    }
+  ]
+}

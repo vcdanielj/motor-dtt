@@ -1,13 +1,38 @@
 node_modules/
 dist/
+!vendor/**/dist/
+!vendor/**/dist/**
+!vendor/**/build/
+!vendor/**/build/**
 .DS_Store
 *.local
 output/
 .superpowers/
 *.tsbuildinfo
+.wrangler/
+.env
+.env.*
+!.env.example
 
-# Real sell-out data — NEVER commit (320MB, 740K rows; local-only per RNF5)
+# Local commercial data and spreadsheets
 Sell out*.csv
 *.csv
 !test/**/*.csv
+!vendor/**/*.csv
+*.xls
+*.xlsx
+*.ods
 data/
+!vendor/**/data/
+!vendor/**/data/**
+
+# Internal business and delivery documents, kept on this machine only.
+/0[1-9]_*.md
+/1[0-8]_*.md
+/PRD_Motor_Estandarizacion_DTT.md
+/TRD_Motor_DTT_y_Plan_Sprints.md
+/entregable_heinz/
+/docs/superpowers/
+
+# Generated architecture graph; the maintained technical guide is README.md.
+/graphify-out/

@@ -1,0 +1,11 @@
+node_modules/
+.eslintrc
+images/
+package-lock.json
+js/
+coverage/
+data.json
+bench.ts
+mod.ts
+tsconfig.json
+tsconfig.esm.json

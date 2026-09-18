@@ -56,6 +56,13 @@ export const CIUDAD_ESTADO: Record<string, string> = {
   CAUCAGUA: 'MIRANDA',
   'OCUMARE DEL TUY': 'MIRANDA',
   'SAN FRANCISCO DE YARE': 'MIRANDA',
+  SOAPIRE: 'MIRANDA',
+  'PAZ CASTILLO': 'MIRANDA',
+  'SAN PEDRO DE LOS ALTOS': 'MIRANDA',
+  'SAN DIEGO DE LOS ALTOS': 'MIRANDA',
+  'LOS SALIAS': 'MIRANDA',
+  'TOMAS LANDER': 'MIRANDA',
+  GUAICAIPURO: 'MIRANDA',
 
   // ── Vargas (La Guaira) ──
   'LA GUAIRA': 'VARGAS',
@@ -100,6 +107,9 @@ export const CIUDAD_ESTADO: Record<string, string> = {
   'COLONIA TOVAR': 'ARAGUA',
   'OCUMARE DE LA COSTA': 'ARAGUA',
   CHORONI: 'ARAGUA',
+  CAMATAGUA: 'ARAGUA',
+  'SAN CASIMIRO': 'ARAGUA',
+  'SAN SEBASTIAN DE LOS REYES': 'ARAGUA',
 
   // ── Lara ──
   BARQUISIMETO: 'LARA',
@@ -210,6 +220,7 @@ export const CIUDAD_ESTADO: Record<string, string> = {
   CALABOZO: 'GUARICO',
   ZARAZA: 'GUARICO',
   'ALTAGRACIA DE ORITUCO': 'GUARICO',
+  'JOSE TADEO MONAGAS': 'GUARICO',
   TUCUPIDO: 'GUARICO',
 
   // ── Cojedes ──

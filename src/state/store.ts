@@ -18,6 +18,10 @@ import type { CiudadEstadoEntry, DiccionarioEntry, EstadoDiccionarioEntry, Clien
 import type { MaestroEntry } from '@/contracts/maestro'
 import { loadRunConfig } from '@/storage/run-config'
 import { csvDocument } from '@/reports/csv'
+import { buildRunAuditManifest } from '@/audit/manifest'
+import { auditBlob, auditFileName } from '@/audit/serialize'
+import { compareAuditSnapshots, snapshotOf, type AuditComparison } from '@/audit/compare'
+import { parseAuditSnapshot } from '@/audit/parse'
 import {
   buildClientesWorkbook, etiquetaFalta, matchEstado, matchSegmento, parsePlantillaClientes,
   sanitizeDistributorFilename,
@@ -63,6 +67,7 @@ interface StoreState {
   runResult: PipelineRunResult | null
   lastFile: File | null           // the run's source file, kept so export can re-stream it
   runId: string | null            // minted when the pipeline run completes; stamped into the export
+  lastRunThresholds: Thresholds | null // exact thresholds used by the completed worker run
   versionDiccionario: string      // stamped into the export's version_diccionario column
   exportState: ExportPhase
   exportRows: number
@@ -84,6 +89,8 @@ interface StoreState {
   startIngest: (file: File) => Promise<void>
   startPipeline: (file: File) => Promise<void>
   exportBase: () => Promise<void>
+  exportAuditManifest: () => Promise<void>
+  compareAuditManifest: (file: File) => Promise<AuditComparison>
   refreshLearned: () => Promise<void>
   resolveColaItem: (id: string, segmentoN3: string) => Promise<void>
   exportLearnedDiccionario: () => Promise<void>
@@ -110,6 +117,16 @@ interface StoreState {
 // hardcoded 92/80 fuzzy thresholds elsewhere (src/worker/ingest.worker.ts, Config.tsx).
 const VERSION_DICCIONARIO = 'v1'
 
+function auditManifestFor(state: StoreState) {
+  const { runResult, runId, versionDiccionario, lastRunThresholds } = state
+  if (!runResult || !runId || !lastRunThresholds) return null
+  return buildRunAuditManifest(runResult, {
+    runId,
+    dictionaryVersion: versionDiccionario,
+    ...lastRunThresholds,
+  })
+}
+
 export const useStore = create<StoreState>((set, get) => ({
   view: 'dashboard',
   setView: (view) => set({ view }),
@@ -123,6 +140,7 @@ export const useStore = create<StoreState>((set, get) => ({
   runResult: null,
   lastFile: null,
   runId: null,
+  lastRunThresholds: null,
   versionDiccionario: VERSION_DICCIONARIO,
   exportState: 'idle',
   exportRows: 0,
@@ -153,6 +171,7 @@ export const useStore = create<StoreState>((set, get) => ({
       ingest: { phase: 'running', rows: 0, distributors: 0, clientes: 0, fileName: file.name, summary: null, error: null },
       lastFile: file,
       runId: null,
+      lastRunThresholds: null,
       exportState: 'idle',
       exportRows: 0,
       exportError: null,
@@ -163,6 +182,7 @@ export const useStore = create<StoreState>((set, get) => ({
       // Merge learned diccionario/manual maestro (IndexedDB) over the embedded seeds so this run
       // benefits from everything the analyst has taught the motor so far (Sprint 2 · C1).
       const runConfig = await loadRunConfig()
+      const runThresholds = { ...get().thresholds }
       const result = await adapters.runPipeline(file, (e: ProgressEvent) => {
         if (e.type === 'progress') set((s) => ({ ingest: { ...s.ingest, rows: e.rows, distributors: e.distributors, clientes: e.clientes } }))
         if (e.type === 'stage') {
@@ -173,7 +193,7 @@ export const useStore = create<StoreState>((set, get) => ({
             },
           }))
         }
-      }, runConfig, get().thresholds)
+      }, runConfig, runThresholds)
       const summary = { ...result.summary, startedAt, finishedAt: Date.now() }
       set(() => ({
         ingest: { phase: 'done', rows: summary.totalRows, distributors: summary.distributors, clientes: summary.clientes, fileName: file.name, summary, error: null },
@@ -190,10 +210,27 @@ export const useStore = create<StoreState>((set, get) => ({
         // Minted here (not in the worker, which never touches Date.now()) so the export pass
         // can stamp a stable run_id — reusing the timestamp already computed for this run.
         runId: `run-${startedAt}`,
+        lastRunThresholds: runThresholds,
       }))
     } catch (err) {
       set((s) => ({ ingest: { ...s.ingest, phase: 'error', error: (err as Error).message } }))
     }
+  },
+  exportAuditManifest: async () => {
+    const manifest = auditManifestFor(get())
+    if (!manifest) return
+    await adapters.saveBlob(
+      auditBlob(manifest),
+      auditFileName(manifest.run.id),
+      [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+    )
+  },
+  compareAuditManifest: async (file) => {
+    const manifest = auditManifestFor(get())
+    if (!manifest) throw new Error('Primero completa una corrida')
+    if (file.size > 2 * 1024 * 1024) throw new Error('El manifiesto supera el límite de 2 MB')
+    const previous = parseAuditSnapshot(await file.text())
+    return compareAuditSnapshots(snapshotOf(manifest), previous)
   },
   // On-demand export (Sprint 2 · X1): re-streams the run's file through the worker's
   // export mode, which builds the FULL maestro itself (two-pass, uncapped), then saves the

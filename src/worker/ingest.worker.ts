@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-import Papa from 'papaparse'
 import {
   schemaIsUsable,
   detectDistCol,
@@ -8,13 +7,16 @@ import {
   detectTonCol,
   detectCodigoClienteCol,
   detectSucursalCol,
-  findBestHeaderRow,
 } from '@/ingest/schema-detect'
 import { streamXlsxWorkbook } from '@/ingest/xlsx-stream'
-import { normalizeText, normalizeRif, parseNumeric, isSummaryFooterRow } from '@/ingest/normalize'
+import { streamCsv } from '@/ingest/csv-stream'
+import { kindOf, esZip, MSG_XLS_VIEJO } from '@/ingest/file-format'
+import { normalizeText, normalizeRif, parseNumeric } from '@/ingest/normalize'
 import { SEEDS } from '@/seeds'
-import { buildIndex, type SegmentoContext } from '@/pipeline/segmento'
-import { buildEstadoContext, type EstadoContext } from '@/pipeline/estado'
+import {
+  estadoDeAlias, estadoByRifSeed, buildSegmentoContext, buildEstadoCtx,
+  estadoByRifFrom, seedManualMaestro, type ResolutionConfig,
+} from './resolution-config'
 import { MetricsAccumulator, newEstadoTally, scdcCrudoPct } from '@/pipeline/metrics'
 import { createColaAccumulator, stableId } from '@/pipeline/cola'
 import { MaestroBuilder, parseFechaOrden } from '@/pipeline/maestro'
@@ -45,41 +47,6 @@ import type { SchemaMap } from '@/contracts/row'
 import type { DiccionarioEntry, EstadoDiccionarioEntry, ClienteAliasEntry } from '@/contracts/config'
 import type { MaestroEntry } from '@/contracts/maestro'
 
-// Recency key stamped on manual classifications (from Config import or Cola resolution) so they
-// win rule D3 over any observed row from the actual file.
-const MANUAL_FECHA_ORDEN = Number.MAX_SAFE_INTEGER
-
-// The 24 official estados, normalized — the gate every alias-provided estado must pass before it
-// can resolve a row (an alias imported with a typo'd estado must never leak into estado_std).
-const ESTADO_CATALOGO = new Set(SEEDS.estados.map(normalizeText))
-
-/** The alias's estadoStd, canonicalized, or null when absent/not a catalog estado. */
-function estadoDeAlias(alias: ClienteAliasEntry | null): string | null {
-  if (!alias?.estadoStd) return null
-  const estado = normalizeText(alias.estadoStd)
-  return ESTADO_CATALOGO.has(estado) ? estado : null
-}
-
-/** Estado-por-RIF conocido ANTES de leer el archivo: el estado habitual de las clasificaciones
- *  manuales persistidas y el "Estado Sugerido" de las homologaciones de código. Alimenta el paso
- *  RIF de la cascada de estados en el export (pasada A) y complementa al maestro en la pasada B. */
-function estadoByRifSeed(cfg: ResolutionConfig): Map<string, string> {
-  const seedMap = new Map<string, string>()
-  for (const a of cfg.aliases) {
-    if (!a.activa || !a.estadoStd) continue
-    const estado = normalizeText(a.estadoStd)
-    const rifKey = normalizeRif(a.rifCanonico)
-    if (rifKey !== '' && ESTADO_CATALOGO.has(estado)) seedMap.set(rifKey, estado)
-  }
-  for (const m of cfg.manualMaestro) {
-    if (!m.estadoHabitual) continue
-    const rifKey = normalizeRif(m.rif)
-    const estado = normalizeText(m.estadoHabitual)
-    if (rifKey !== '' && ESTADO_CATALOGO.has(estado)) seedMap.set(rifKey, estado)
-  }
-  return seedMap
-}
-
 type WorkerMode = 'counting' | 'pipeline' | 'export'
 
 interface WorkerRequest {
@@ -97,22 +64,6 @@ interface WorkerRequest {
 }
 
 const post = (e: ProgressEvent) => (self as unknown as Worker).postMessage(e)
-
-function kindOf(name: string): FileKind | null {
-  if (/\.csv$/i.test(name)) return 'csv'
-  if (/\.xlsx?$/i.test(name)) return 'xlsx'
-  return null
-}
-
-// XLSX files are ZIP containers (magic bytes 'PK'). A legacy binary .xls (BIFF) or a renamed file
-// is not — without this check JSZip failed with a cryptic "end of central directory" error.
-function esZip(buf: ArrayBuffer): boolean {
-  const b = new Uint8Array(buf, 0, Math.min(2, buf.byteLength))
-  return b.length === 2 && b[0] === 0x50 && b[1] === 0x4b
-}
-
-const MSG_XLS_VIEJO =
-  'El archivo no es un XLSX válido — probablemente es un .xls antiguo. Ábrelo en Excel y guárdalo como "Libro de Excel (.xlsx)", o expórtalo a CSV, y vuelve a cargarlo.'
 
 self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
   const file = ev.data?.file
@@ -134,161 +85,6 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
     return runExport(file, ev.data.versionDiccionario ?? '', ev.data.runId ?? '', cfg)
   }
   return runCounting(file)
-}
-
-// Everything the resolution cascades need, bundled so the pipeline and export branches take the
-// same single argument instead of five positional ones that must stay in sync.
-interface ResolutionConfig {
-  diccionario: DiccionarioEntry[]
-  estadoDiccionario: EstadoDiccionarioEntry[]
-  ciudadEstado: Record<string, string>
-  manualMaestro: MaestroEntry[]
-  aliases: ClienteAliasEntry[]
-  fuzzyThreshold: number
-  fuzzySuggestFloor: number
-}
-
-function buildSegmentoContext(cfg: ResolutionConfig, maestro: Map<string, MaestroEntry>): SegmentoContext {
-  return {
-    index: buildIndex(cfg.diccionario), // merged: SEEDS.diccionario ++ learned (learned wins)
-    maestro,
-    fuzzyThreshold: cfg.fuzzyThreshold,
-    fuzzySuggestFloor: cfg.fuzzySuggestFloor,
-  }
-}
-
-function buildEstadoCtx(cfg: ResolutionConfig, estadoByRif = new Map<string, string>()): EstadoContext {
-  return buildEstadoContext(
-    SEEDS.estados,
-    cfg.ciudadEstado,
-    estadoByRif,
-    cfg.estadoDiccionario,
-    cfg.fuzzyThreshold,
-    cfg.fuzzySuggestFloor,
-  )
-}
-
-/** The habitual estado of every client the maestro knows, keyed by normalized RIF — the input of
- *  the estado cascade's RIF step. */
-function estadoByRifFrom(maestro: Map<string, MaestroEntry>): Map<string, string> {
-  const estadoByRif = new Map<string, string>()
-  for (const [rKey, entry] of maestro) {
-    if (entry.estadoHabitual) estadoByRif.set(rKey, entry.estadoHabitual)
-  }
-  return estadoByRif
-}
-
-// Pre-seeds a MaestroBuilder with the persisted manual classifications so they win D3 and recover
-// their RIF's rows, whether or not the file resolved that RIF via EXACTO/FUZZY on its own.
-function seedManualMaestro(builder: MaestroBuilder, manualMaestro: MaestroEntry[]): void {
-  for (const m of manualMaestro) {
-    builder.observe({
-      rif: m.rif,
-      segmentoN3: m.segmentoN3 ?? '',
-      macroN1: m.macroN1 ?? '',
-      metodo: 'MANUAL',
-      fechaOrden: MANUAL_FECHA_ORDEN,
-      razonSocial: m.razonSocial,
-      estadoStd: m.estadoHabitual,
-    })
-  }
-}
-
-// Streams CSV records handling leading letterheads (membretes) and blank lines before headers.
-async function streamCsv(
-  file: File,
-  onHeaders: (headers: string[], schema: SchemaMap) => boolean | void,
-  onRow: (rec: Record<string, string>) => void,
-  onProgress?: (bytesRead: number) => void,
-): Promise<{ ok: boolean; totalRows: number }> {
-  let headerRowFound = false
-  let headers: string[] = []
-  let schema: SchemaMap | null = null
-  let totalRows = 0
-  const matrixBuffer: string[][] = []
-  const MAX_SCAN_ROWS = 50
-
-  return new Promise<{ ok: boolean; totalRows: number }>((resolve, reject) => {
-    Papa.parse<string[]>(file, {
-      header: false,
-      skipEmptyLines: true,
-      worker: false,
-      step: (res, parser) => {
-        if (typeof res.meta.cursor === 'number' && onProgress) {
-          onProgress(res.meta.cursor)
-        }
-
-        const row = res.data
-        if (!row || !row.some((c) => String(c ?? '').trim() !== '')) return
-
-        if (!headerRowFound) {
-          matrixBuffer.push(row.map((c) => String(c ?? '').trim()))
-          if (matrixBuffer.length <= MAX_SCAN_ROWS) {
-            const best = findBestHeaderRow(matrixBuffer, MAX_SCAN_ROWS)
-            if (best) {
-              headerRowFound = true
-              headers = best.headers
-              schema = best.schema
-              const accept = onHeaders(headers, schema)
-              if (accept === false) {
-                parser.abort()
-                resolve({ ok: false, totalRows: 0 })
-                return
-              }
-              // Process buffered data rows after the header row
-              for (let i = best.headerRowIdx + 1; i < matrixBuffer.length; i++) {
-                const bRow = matrixBuffer[i]
-                const rec: Record<string, string> = {}
-                for (let c = 0; c < headers.length; c++) {
-                  const k = headers[c]
-                  if (k) rec[k] = String(bRow[c] ?? '').trim()
-                }
-                if (!isSummaryFooterRow(rec, schema.rif)) {
-                  onRow(rec)
-                  totalRows++
-                }
-              }
-            }
-          }
-        } else {
-          // Normal data row streaming
-          const rec: Record<string, string> = {}
-          for (let c = 0; c < headers.length; c++) {
-            const k = headers[c]
-            if (k) rec[k] = String(row[c] ?? '').trim()
-          }
-          if (schema && !isSummaryFooterRow(rec, schema.rif)) {
-            onRow(rec)
-            totalRows++
-          }
-        }
-      },
-      complete: () => {
-        if (!headerRowFound && matrixBuffer.length > 0) {
-          const best = findBestHeaderRow(matrixBuffer, MAX_SCAN_ROWS)
-          if (best) {
-            headers = best.headers
-            schema = best.schema
-            onHeaders(headers, schema)
-            for (let i = best.headerRowIdx + 1; i < matrixBuffer.length; i++) {
-              const bRow = matrixBuffer[i]
-              const rec: Record<string, string> = {}
-              for (let c = 0; c < headers.length; c++) {
-                const k = headers[c]
-                if (k) rec[k] = String(bRow[c] ?? '').trim()
-              }
-              if (!isSummaryFooterRow(rec, schema.rif)) {
-                onRow(rec)
-                totalRows++
-              }
-            }
-          }
-        }
-        resolve({ ok: headerRowFound && totalRows > 0, totalRows })
-      },
-      error: (err) => reject(err),
-    })
-  })
 }
 
 // ── Counting path — feeds startIngest/Corrida's live row/distributor tally. ──

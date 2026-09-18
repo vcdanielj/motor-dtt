@@ -18,7 +18,12 @@ export default defineConfig({
     }),
   ],
   worker: { format: 'es' },
-  build: { target: 'es2022' },
+  build: {
+    target: 'es2022',
+    // Local file: dependencies resolve outside node_modules. Convert their CJS/UMD
+    // distributions in both the application and the ingest worker.
+    commonjsOptions: { include: [/node_modules/, /vendor\//] },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

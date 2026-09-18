@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "downlevelIteration": true,
+    "module": "esnext",
+    "strict": true,
+    "moduleResolution": "node",
+    "composite": true,
+    "declaration": true,
+    "allowSyntheticDefaultImports": true,
+    "noUnusedLocals": true,
+    "sourceMap": false
+  }
+}
