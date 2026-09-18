@@ -354,7 +354,7 @@ export default function Manual() {
               <span className="h-2.5 w-2.5 rounded-full bg-line" />
               <span className="h-2.5 w-2.5 rounded-full bg-line" />
               <span className="h-2.5 w-2.5 rounded-full bg-line" />
-              <span className="ml-2 font-mono text-[11px] text-slate-2">motor-dtt.pages.dev</span>
+              <span className="ml-2 font-mono text-[11px] text-slate-2">Motor DTT · aplicación web</span>
             </div>
             <div className="flex flex-col sm:flex-row">
               <div className="flex shrink-0 flex-row overflow-x-auto bg-navy font-sans text-[11px] text-panel/80 sm:w-40 sm:flex-col sm:overflow-visible">

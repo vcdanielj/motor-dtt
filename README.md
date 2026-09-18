@@ -123,7 +123,9 @@ Para cambios en reglas, revisar `src/contracts/`, la función pura pertinente y 
 
 ## Seguridad y despliegue
 
-La aplicación se compila como sitio estático. En Cloudflare Pages, usar Node 22, comando `npm run build` y directorio de salida `dist`. No hacen falta secretos de servidor para servir la PWA. `public/_headers` se copia al artefacto y define, entre otras cabeceras, una CSP con `connect-src 'self'` y `worker-src 'self' blob:`. El service worker precachea la aplicación; no establece caché de ejecución para archivos de datos.
+La aplicación se compila como sitio estático y puede servirse desde cualquier infraestructura capaz de publicar archivos HTML, CSS y JavaScript. En el entorno de compilación, usar Node 22, ejecutar `npm ci && npm run build` y publicar el contenido de `dist/` en la raíz del sitio. La PWA requiere HTTPS en producción para registrar el service worker. No hacen falta secretos de servidor para servirla.
+
+`public/_headers` se copia a `dist/` y declara cabeceras de seguridad, incluida una CSP con `connect-src 'self'` y `worker-src 'self' blob:`. Las plataformas que admiten ese formato pueden aplicarlas directamente; en cualquier otro servidor deben configurarse como cabeceras HTTP equivalentes. El service worker precachea la aplicación y no establece caché de ejecución para archivos de datos.
 
 Los archivos reales de ventas, libros de cálculo y documentos internos están excluidos por `.gitignore`. Las exportaciones se guardan solo cuando el usuario solicita una descarga. Los documentos empresariales locales y los planes internos no forman parte del árbol público actual; si estaban versionados antes, pueden seguir presentes en el historial Git anterior a su retirada del índice.
 
